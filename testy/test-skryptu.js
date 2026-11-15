@@ -125,13 +125,13 @@ assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'opis', url: 'https:/
 const strony = g.strony; g.strony = new Proxy({}, { get: () => { throw new Error('Nie masz uprawnień do wywołania UrlFetchApp.fetch'); } });
 assert.match(zapytaj(g, { klucz: 'tajny', akcja: 'opis', url: 'https://danluu.com/ambitious' }).problem, /uprawnień/);
 g.strony = strony;
-assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'wersja' }), { wersja: 6 });
+assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'wersja' }), { wersja: 7 });
 assert.deepStrictEqual(zapytaj(g, { klucz: 'zly', akcja: 'wersja' }), { blad: 'zły klucz' });
 g.strony['https://www.youtube.com/oembed?format=json&url=' + encodeURIComponent('https://www.youtube.com/watch?v=jNQXAC9IVRw')] = { tekst: JSON.stringify({ title: 'Me at the zoo', author_name: 'jawed' }) };
 assert.strictEqual(g.sprawdzTytuly().tytul, 'Me at the zoo');
 assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'opis', url: 'file:///C:/x' }), { blad: 'zły adres' });
 assert.deepStrictEqual(zapytaj(g, { klucz: 'zly', akcja: 'opis', url: yt }), { blad: 'zły klucz' });
-assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 6);
+assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 7);
 
 // 4. Streszczenia (wersja 4).
 {
@@ -303,6 +303,24 @@ assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 6);
   assert.match(zapytaj(g6, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'd3', url: 'https://example.com/dlugi' }).streszczenie.problem, /429/);
   assert.deepStrictEqual(zapytaj(g6, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'd4', url: 'file:///C:/x' }), { blad: 'zły adres' });
   assert.deepStrictEqual(zapytaj(g6, { klucz: 'zly', akcja: 'streszczTeraz', id: 'd1', url: 'https://example.com/dlugi' }), { blad: 'zły klucz' });
+
+  // Brak odpowiedzi Gemini (przekroczony czas przy długim filmie): następny model, a gdy wszystkie milczą –
+  // czytelny błąd zapisany przy wpisie (bez zużycia prób), zamiast zawieszenia całego skryptu.
+  const g9 = nowyGoogle();
+  g9.wlasciwosci.GEMINI_KLUCZ = 'k';
+  g9.gemini = () => { throw new Error('Przekroczono limit czasu: https://generativelanguage.googleapis.com'); };
+  const s9 = zapytaj(g9, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'f1', url: 'https://www.youtube.com/watch?v=dlugifilm1' }).streszczenie;
+  assert.strictEqual(g9.zapytaniaGemini.length, 3, 'po jednym zapytaniu na model, bez ponawiania tego samego');
+  assert.match(s9.problem, /brak odpowiedzi.*długi film/);
+  assert.strictEqual(s9.proby, undefined);
+  // Budżet 4 minut: po jego przekroczeniu kolejne modele nie są już pytane.
+  const g10 = nowyGoogle();
+  g10.wlasciwosci.GEMINI_KLUCZ = 'k';
+  let zegar10 = 0;
+  g10.Date = class extends Date { static now() { return zegar10; } };
+  g10.gemini = () => { zegar10 += 5 * 60 * 1000; return { kod: 503, odpowiedz: { error: { message: 'slow' } } }; };
+  zapytaj(g10, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'f2', url: 'https://www.youtube.com/watch?v=dlugifilm2' });
+  assert.strictEqual(g10.zapytaniaGemini.length, 1, 'po przekroczeniu budżetu czasu – koniec prób');
 
   // wlaczStreszczenia: próbne streszczenie + jeden harmonogram co godzinę (bez dubli).
   g5.wlaczStreszczenia();

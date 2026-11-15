@@ -21,10 +21,12 @@ const SKRYPT_GOOGLE = `/* Potok – pośrednik między aplikacją a Twoim Google
    (akcja „streszczTeraz”). Harmonogram co godzinę działa dalej; wyłącza go
    funkcja zatrzymajHarmonogram.
    Wersja 6: przy przeciążeniu Gemini (kod 503) ponowna próba, potem modele
-   zapasowe (MODELE_ZAPASOWE) – każdy model ma u Google osobny limit. */
+   zapasowe (MODELE_ZAPASOWE) – każdy model ma u Google osobny limit.
+   Wersja 7: brak odpowiedzi Gemini (przekroczony czas, np. długi film) nie
+   zawiesza „Streść teraz” – po 4 minutach skrypt kończy z czytelnym błędem. */
 
 const KLUCZ = 'WSTAW_KLUCZ';   // aplikacja wstawia tu Twój tajny klucz
-const WERSJA_SKRYPTU = 6;
+const WERSJA_SKRYPTU = 7;
 
 /** Zapytanie z aplikacji: { klucz, akcja: 'pobierz' | 'zapisz' | 'opis' | 'wersja' | 'streszczenia' | 'streszczTeraz', tresc?, url?, od?, id?, rodzaj? } */
 function doPost(e) {
@@ -243,15 +245,34 @@ function zapytajSilnik(rodzaj, material) {
       ? [{ fileData: { fileUri: material.film }, videoMetadata: { fps: 0.1 } }, { text: polecenie }]
       : [{ text: polecenie + '\\n\\n---\\n' + material.tekst }];
     let ostatni;
+    // Google przerywa skrypt po 6 minutach, a pojedyncze zapytanie po ok. 60 s.
+    // Długi film potrafi nie zmieścić się w minucie – wtedy nie próbujemy w kółko,
+    // tylko kończymy z czytelnym błędem, zanim Google utnie cały skrypt.
+    const start = Date.now();
+    const BUDZET_MS = 4 * 60 * 1000;
     for (const model of modele) {
       // Przeciążenie (503/500) zwykle mija po chwili – jedna ponowna próba tym samym modelem.
       for (let proba = 0; proba < 2; proba++) {
+        if (Date.now() - start > BUDZET_MS) {
+          const e = ostatni || new Error('Gemini: brak odpowiedzi w 4 minuty');
+          e.limit = true;
+          throw e;
+        }
         if (proba) Utilities.sleep(4000);
-        const odp = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
-          method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-          headers: { 'x-goog-api-key': klucz },
-          payload: JSON.stringify({ contents: [{ parts: czesci }], generationConfig: { mediaResolution: 'MEDIA_RESOLUTION_LOW' } }),
-        });
+        let odp;
+        try {
+          odp = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
+            method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+            headers: { 'x-goog-api-key': klucz },
+            payload: JSON.stringify({ contents: [{ parts: czesci }], generationConfig: { mediaResolution: 'MEDIA_RESOLUTION_LOW' } }),
+          });
+        } catch (x) {
+          // Zwykle przekroczony czas (ok. 60 s) – np. bardzo długi film. Następny model.
+          ostatni = new Error('Gemini (' + model + '): brak odpowiedzi – ' + String(x && x.message || x).slice(0, 150) +
+            (material.film ? ' (długi film? spróbuj później albo streść ręcznie)' : ''));
+          ostatni.limit = true;
+          break;
+        }
         const kod = odp.getResponseCode();
         let o = {};
         try { o = JSON.parse(odp.getContentText()); } catch (x) { /* nie JSON */ }

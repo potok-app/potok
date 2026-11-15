@@ -14,6 +14,7 @@ const Streszczenia = {
   // Własne drobne pomocniki (app.js ma podobne), żeby plik działał też w testach.
   esc: t => String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])),
   data: iso => new Date(iso).toLocaleString('pl-PL', { day: 'numeric', month: 'short', year: 'numeric' }),
+  godzina: iso => new Date(iso).toLocaleString('pl-PL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
 
   kluczPamieci() { return Magazyn.klucz + '.streszczenia'; },
 
@@ -50,8 +51,8 @@ const Streszczenia = {
         try { wersja = (await Synchronizacja.doSkryptu({ akcja: 'wersja' })).wersja || 0; }
         catch (e) { if (!/nieznana akcja/.test(e.message)) return; }   // brak sieci – spróbujemy później
         this.wersjaSprawdzona = true;
-        // Wersja 5 = „Streść teraz”, 6 = modele zapasowe przy przeciążeniu Gemini; starsza → ramka.
-        if (wersja < 6) localStorage.setItem(Magazyn.klucz + '.skryptBezStreszczen', '1');
+        // Wersja 5 = „Streść teraz”, 6 = modele zapasowe, 7 = limit czasu przy długich filmach; starsza → ramka.
+        if (wersja < 7) localStorage.setItem(Magazyn.klucz + '.skryptBezStreszczen', '1');
         else localStorage.removeItem(Magazyn.klucz + '.skryptBezStreszczen');
       }
       if (this.skryptStary()) return;
@@ -71,7 +72,14 @@ const Streszczenia = {
    * i zwraca je. Zwraca streszczenie (z tekstem albo z polem „problem”/„doRecznego”).
    */
   async teraz(w, rodzaj) {
-    const { streszczenie } = await Synchronizacja.doSkryptu({ akcja: 'streszczTeraz', id: w.id, url: w.url, tytul: w.tytul, rodzaj });
+    let streszczenie;
+    try {
+      ({ streszczenie } = await Synchronizacja.doSkryptu({ akcja: 'streszczTeraz', id: w.id, url: w.url, tytul: w.tytul, rodzaj }));
+    } catch (e) {
+      // Skrypt nie odpowiedział (sieć, przekroczony czas) – zapisujemy to przy wpisie,
+      // żeby wynik próby był widoczny także po zniknięciu komunikatu.
+      streszczenie = { ...(this.dla(w.id) || { id: w.id }), problem: 'brak odpowiedzi skryptu Google: ' + e.message, zmieniono: new Date().toISOString() };
+    }
     this.zapamietaj([streszczenie]);
     return streszczenie;
   },
@@ -87,7 +95,7 @@ const Streszczenia = {
 
   /** Krótko do „Pliki”: ile gotowych, ile czeka, ile do ręcznego. */
   podsumowanie(wpisy) {
-    if (this.skryptStary()) return 'Streszczenia: potrzebny skrypt Google w wersji 6 (ramka niżej).';
+    if (this.skryptStary()) return 'Streszczenia: potrzebny skrypt Google w wersji 7 (ramka niżej).';
     const mapa = this.pamiec().mapa;
     const doZrobienia = wpisy.filter(w => (w.status === 'do_streszczenia' || w.status === 'szczegolowo') && w.url && /^https?:/i.test(w.url));
     const rodzaj = w => (w.status === 'szczegolowo' ? 'szczegolowe' : 'krotkie');
@@ -114,7 +122,7 @@ const Streszczenia = {
     const rodzaj = w.status === 'szczegolowo' ? 'szczegolowe' : w.status === 'do_streszczenia' ? 'krotkie' : null;
     if (rodzaj && !(s && s[rodzaj])) {
       if (s && s.doRecznego && s.doRecznego[rodzaj]) czesci.push(`<p class="streszczenie-stan">✋ Do ręcznego streszczenia: ${esc(s.doRecznego[rodzaj])}</p>`);
-      else if (czeka) czesci.push(`<p class="streszczenie-stan">⏳ ${rodzaj === 'szczegolowe' ? 'Szczegółowe streszczenie' : 'Streszczenie'} w kolejce (automat co godzinę)${s && s.problem ? ` · ostatnia próba: ${esc(s.problem)}` : ''}</p>`);
+      else if (czeka) czesci.push(`<p class="streszczenie-stan">⏳ ${rodzaj === 'szczegolowe' ? 'Szczegółowe streszczenie' : 'Streszczenie'} w kolejce (automat co godzinę)${s && s.problem ? ` · ostatnia próba${s.zmieniono ? ' (' + esc(this.godzina(s.zmieniono)) + ')' : ''}: ${esc(s.problem)}` : ''}</p>`);
     }
     const zamow = this.doZamowienia(w);
     if (zamow) czesci.push(`<button class="streszcz-teraz" data-streszcz="${esc(w.id)}" data-rodzaj="${zamow}">✨ ${zamow === 'szczegolowe' ? 'Streść szczegółowo teraz' : 'Streść teraz'}</button>`);
