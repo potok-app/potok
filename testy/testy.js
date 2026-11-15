@@ -439,3 +439,13 @@ test('streszczenia: eksport .md zawiera krótkie i szczegółowe streszczenie', 
   prawda(md.includes('  - streszczenie: Krótko o tym.') && md.includes('    ## Struktura') && md.includes('    - część 1'), md);
   localStorage.removeItem(Streszczenia.kluczPamieci());
 });
+
+test('streszczenia: ostatnia nieudana próba widoczna przy wpisie razem z godziną', () => {
+  localStorage.removeItem(Streszczenia.kluczPamieci());
+  localStorage.setItem(Magazyn.klucz + '.skrypt', JSON.stringify({ url: 'https://script.google.com/macros/s/x/exec', klucz: 'k' }));
+  Streszczenia.zapamietaj([{ id: 's9', problem: 'Gemini (m): kod 503', zmieniono: '2026-11-15T14:47:00Z' }]);
+  const h = Streszczenia.html({ id: 's9', url: 'https://a.pl', status: 'do_streszczenia' });
+  prawda(/ostatnia próba \(15 lis.*\): Gemini \(m\): kod 503/.test(h), h);
+  localStorage.removeItem(Magazyn.klucz + '.skrypt');
+  localStorage.removeItem(Streszczenia.kluczPamieci());
+});

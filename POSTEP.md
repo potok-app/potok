@@ -1,5 +1,10 @@
 # Potok – postęp prac i decyzje
 
+## 15.11.2026 (4) – wynik ostatniej próby widoczny przy wpisie (aplikacja v25)
+- Problem przy diagnozie: po „Streść teraz” wynik był tylko w komunikacie na dole ekranu (znika po 3,5 s), a przy wpisie zostawał stary błąd bez daty – nie było wiadomo, czy to nowa, czy stara próba.
+- Teraz „ostatnia próba” ma datę i godzinę, a gdy skrypt Google w ogóle nie odpowie (sieć, przekroczony czas), aplikacja zapisuje to przy wpisie („brak odpowiedzi skryptu Google: …”).
+- Jak rozpoznać wersję skryptu po błędzie: v6 pisze „Gemini (nazwa-modelu): kod …”, starsze „Gemini: kod …”.
+
 ## 15.11.2026 (3) – przeciążenie Gemini: ponowna próba i modele zapasowe (skrypt v6, aplikacja v24)
 - Objaw: „Streść teraz” → „Gemini: kod 503 – This model is currently experiencing high demand”. To chwilowe przeciążenie serwerów Google (darmowy Flash-Lite), nie błąd po naszej stronie.
 - Skrypt v6: przy 503/500 czeka 4 s i ponawia ten sam model; potem próbuje modeli zapasowych z ustawienia `MODELE_ZAPASOWE` (domyślnie `gemini-3.8-flash,gemini-2.5-flash`). Przy 429 (wyczerpany limit) i 404 (nieznany model) od razu następny model – każdy model ma u Google osobny limit. Przy streszczeniu zapisuje się model, który naprawdę streścił.
