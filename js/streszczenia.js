@@ -52,7 +52,7 @@ const Streszczenia = {
         catch (e) { if (!/nieznana akcja/.test(e.message)) return; }   // brak sieci – spróbujemy później
         this.wersjaSprawdzona = true;
         // Wersja 5 = „Streść teraz”, 6 = modele zapasowe, 7 = limit czasu, 8 = długie filmy do ręcznego; starsza → ramka.
-        if (wersja < 8) localStorage.setItem(Magazyn.klucz + '.skryptBezStreszczen', '1');
+        if (wersja < 9) localStorage.setItem(Magazyn.klucz + '.skryptBezStreszczen', '1');
         else localStorage.removeItem(Magazyn.klucz + '.skryptBezStreszczen');
       }
       if (this.skryptStary()) return;
@@ -103,7 +103,7 @@ const Streszczenia = {
 
   /** Krótko do „Pliki”: ile gotowych, ile czeka, ile do ręcznego. */
   podsumowanie(wpisy) {
-    if (this.skryptStary()) return 'Streszczenia: potrzebny skrypt Google w wersji 8 (ramka niżej).';
+    if (this.skryptStary()) return 'Streszczenia: potrzebny skrypt Google w wersji 9 (ramka niżej).';
     const mapa = this.pamiec().mapa;
     const doZrobienia = wpisy.filter(w => (w.status === 'do_streszczenia' || w.status === 'szczegolowo') && w.url && /^https?:/i.test(w.url));
     const rodzaj = w => (w.status === 'szczegolowo' ? 'szczegolowe' : 'krotkie');

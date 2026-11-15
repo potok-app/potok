@@ -1,5 +1,11 @@
 # Potok – postęp prac i decyzje
 
+## 15.11.2026 (7) – Pobieracz dostaje każdy film YouTube czekający na streszczenie (skrypt v9, aplikacja v27)
+- Objaw przy pierwszej próbie: Pobieracz napisał „żaden film nie czeka na transkrypcję”, a „Streść teraz” przy podcaście (3 h) nic nie zmieniło – przy wpisie dalej stary błąd 404 ze skryptu v7. Film nie miał oznaczenia „do ręcznego”, a skrypt v8 dawał Pobieraczowi tylko takie.
+- Prawdopodobna przyczyna: skrypt Google nie odczytał długości filmu ze strony YouTube (YouTube pokazuje serwerom Google inną stronę), więc wysłał cały film do Gemini i nie zdążył przed limitem czasu.
+- Skrypt v9: `doTranskrypcji` zwraca każdy film z YouTube ze statusem „Streścić” / „Streścić szczegółowo” albo „do ręcznego” bez gotowego streszczenia – Pobieracz nie zależy już od tego, czy skrypt rozpozna długość. Długość filmu odczytywana także z `approxDurationMs` i `itemprop="duration"`.
+- Pobieracz YT 1.7.1: przycisk „✨ Streść filmy YouTube z Potoku”.
+
 ## 15.11.2026 (6) – długie filmy do ręcznego, „Wklej tekst”, zapis streszczeń z NotebookLM, Pobieracz YT (skrypt v8, aplikacja v26)
 - Objaw: kilkugodzinny podcast (np. Lex Fridman) nie streszczał się – darmowy Gemini nie mieści takiego filmu w limicie czasu i tokenów, a model `gemini-2.5-flash` zwracał 404 („no longer available to new users”).
 - Decyzja: automat ma zostać prosty i utrzymywalny. Rozważane i odrzucone: dzielenie filmu na części (więcej zapytań, więcej miejsc na błąd – „to będzie koszmar”), automatyczne pobieranie transkrypcji z YouTube (kruche, YouTube często to zmienia), płatny Gemini (wbrew zasadzie „bez abonamentu”).

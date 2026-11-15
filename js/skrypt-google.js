@@ -31,7 +31,7 @@ const SKRYPT_GOOGLE = `/* Potok – pośrednik między aplikacją a Twoim Google
    „streszczTeraz” z polem „tekst”) jest streszczana jak każdy inny materiał. */
 
 const KLUCZ = 'WSTAW_KLUCZ';   // aplikacja wstawia tu Twój tajny klucz
-const WERSJA_SKRYPTU = 8;
+const WERSJA_SKRYPTU = 9;
 
 /** Zapytanie z aplikacji: { klucz, akcja: 'pobierz' | 'zapisz' | 'opis' | 'wersja' | 'streszczenia' | 'streszczTeraz' | 'zapiszGotowe' | 'doTranskrypcji', tresc?, url?, od?, id?, rodzaj? } */
 function doPost(e) {
@@ -356,7 +356,7 @@ function streszczJeden(folder, zadanie) {
     else if (film) {
       const sekundy = dlugoscFilmu(film);
       const maks = (parseInt(ustawienie('MAKS_MINUT_FILMU'), 10) || 50) * 60;
-      if (sekundy && sekundy > maks) return doRecznego('film ma ' + Math.round(sekundy / 60) + ' min – za długi na automat: w Pobieraczu YT kliknij „Streść długie filmy z Potoku”, wklej transkrypcję („Wklej tekst”) albo streść w NotebookLM');
+      if (sekundy && sekundy > maks) return doRecznego('film ma ' + Math.round(sekundy / 60) + ' min – za długi na automat: w Pobieraczu YT kliknij „Streść filmy YouTube z Potoku”, wklej transkrypcję („Wklej tekst”) albo streść w NotebookLM');
       material = { film };
     } else {
       const odp = UrlFetchApp.fetch(w.url, { muteHttpExceptions: true, followRedirects: true, headers: { 'Accept-Language': 'pl,en' } });
@@ -430,9 +430,11 @@ function zapiszGotowe(dane) {
 }
 
 /**
- * Dla Pobieracza YT (na komputerze): filmy z YouTube, których automat nie
- * streścił („do ręcznego”, np. za długie). Pobieracz pobiera ich napisy
- * i odsyła je akcją „streszczTeraz” z polem „tekst”.
+ * Dla Pobieracza YT (na komputerze): filmy z YouTube czekające na streszczenie –
+ * „Streścić” / „Streścić szczegółowo” bez gotowego streszczenia albo oznaczone
+ * „do ręcznego” (np. za długie). Pobieracz pobiera ich napisy i odsyła je
+ * akcją „streszczTeraz” z polem „tekst” (z napisów streszczenie jest pewniejsze
+ * niż z samego filmu, a długość filmu nie ma znaczenia).
  */
 function doTranskrypcji() {
   const tresc = plikPotoku().getBlob().getDataAsString('UTF-8');
@@ -441,10 +443,11 @@ function doTranskrypcji() {
   const filmy = [];
   for (const w of wpisy) {
     if (!w.url || !filmYouTube(w.url)) continue;
-    const s = wczytajStreszczenie(folder, w.id);
-    if (!s || !s.doRecznego) continue;
+    const s = wczytajStreszczenie(folder, w.id) || {};
+    const zeStatusu = w.status === 'szczegolowo' ? 'szczegolowe' : w.status === 'do_streszczenia' ? 'krotkie' : null;
     for (const rodzaj of ['szczegolowe', 'krotkie']) {
-      if (s.doRecznego[rodzaj] && !(s[rodzaj] && s[rodzaj].tekst)) { filmy.push({ id: w.id, url: w.url, tytul: w.tytul || '', rodzaj }); break; }
+      const potrzebne = rodzaj === zeStatusu || (s.doRecznego && s.doRecznego[rodzaj]);
+      if (potrzebne && !(s[rodzaj] && s[rodzaj].tekst)) { filmy.push({ id: w.id, url: w.url, tytul: w.tytul || '', rodzaj }); break; }
     }
   }
   return { filmy };
@@ -455,8 +458,14 @@ function dlugoscFilmu(film) {
   try {
     const odp = UrlFetchApp.fetch(film, { muteHttpExceptions: true, headers: { 'Accept-Language': 'pl,en' } });
     if (odp.getResponseCode() !== 200) return null;
-    const m = odp.getContentText().match(/"lengthSeconds":"(\\d+)"/);
-    return m ? parseInt(m[1], 10) : null;
+    const html = odp.getContentText();
+    const s = html.match(/"lengthSeconds":"(\\d+)"/);
+    if (s) return parseInt(s[1], 10);
+    const ms = html.match(/"approxDurationMs":"(\\d+)"/);
+    if (ms) return Math.round(parseInt(ms[1], 10) / 1000);
+    const iso = html.match(/itemprop="duration" content="PT(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?"/);
+    if (iso && (iso[1] || iso[2] || iso[3])) return (+iso[1] || 0) * 3600 + (+iso[2] || 0) * 60 + (+iso[3] || 0);
+    return null;
   } catch (x) { return null; }
 }
 

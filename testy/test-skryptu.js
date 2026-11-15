@@ -125,13 +125,13 @@ assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'opis', url: 'https:/
 const strony = g.strony; g.strony = new Proxy({}, { get: () => { throw new Error('Nie masz uprawnień do wywołania UrlFetchApp.fetch'); } });
 assert.match(zapytaj(g, { klucz: 'tajny', akcja: 'opis', url: 'https://danluu.com/ambitious' }).problem, /uprawnień/);
 g.strony = strony;
-assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'wersja' }), { wersja: 8 });
+assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'wersja' }), { wersja: 9 });
 assert.deepStrictEqual(zapytaj(g, { klucz: 'zly', akcja: 'wersja' }), { blad: 'zły klucz' });
 g.strony['https://www.youtube.com/oembed?format=json&url=' + encodeURIComponent('https://www.youtube.com/watch?v=jNQXAC9IVRw')] = { tekst: JSON.stringify({ title: 'Me at the zoo', author_name: 'jawed' }) };
 assert.strictEqual(g.sprawdzTytuly().tytul, 'Me at the zoo');
 assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'opis', url: 'file:///C:/x' }), { blad: 'zły adres' });
 assert.deepStrictEqual(zapytaj(g, { klucz: 'zly', akcja: 'opis', url: yt }), { blad: 'zły klucz' });
-assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 8);
+assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 9);
 
 // 4. Streszczenia (wersja 4).
 {
@@ -327,17 +327,24 @@ assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 8);
   const g11 = nowyGoogle();
   g11.wlasciwosci.GEMINI_KLUCZ = 'k';
   g11.strony['https://www.youtube.com/watch?v=dlugi12345'] = { tekst: '<script>var x={"lengthSeconds":"16200"};</script>' };
+  g11.strony['https://www.youtube.com/watch?v=iso1234567'] = { tekst: '<meta itemprop="duration" content="PT2H5M3S">' };
   g11.strony['https://www.youtube.com/watch?v=krotki1234'] = { tekst: '<script>var x={"lengthSeconds":"1500"};</script>' };
   g11.gemini = () => ({ odpowiedz: { candidates: [{ content: { parts: [{ text: 'Film.' }] } }] } });
   const s11 = zapytaj(g11, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'h1', url: 'https://youtu.be/dlugi12345' }).streszczenie;
   assert.match(s11.doRecznego.krotkie, /film ma 270 min – za długi/);
   assert.strictEqual(g11.zapytaniaGemini.length, 0);
+  assert.match(zapytaj(g11, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'h0', url: 'https://youtu.be/iso1234567' }).streszczenie.doRecznego.krotkie, /film ma 125 min/, 'długość z itemprop=duration');
+  assert.strictEqual(g11.zapytaniaGemini.length, 0);
   // Pobieracz YT pyta o filmy do transkrypcji: tylko YouTube „do ręcznego” bez streszczenia.
   zapytaj(g11, { klucz: 'tajny', akcja: 'zapisz', tresc: JSON.stringify({ wersja: 1, wpisy: [
     { id: 'h1', url: 'https://youtu.be/dlugi12345', tytul: 'Długi podcast', status: 'skrzynka' },
-    { id: 'h9', url: 'https://example.com/a', status: 'do_streszczenia' }] }) });
+    { id: 'h9', url: 'https://example.com/a', status: 'do_streszczenia' },
+    { id: 'h8', url: 'https://www.youtube.com/watch?v=nowy123456', tytul: 'Nowy', status: 'szczegolowo' },
+    { id: 'h7', url: 'https://www.youtube.com/watch?v=skrzynka12', status: 'skrzynka' }] }) });
+  const h8 = { id: 'h8', url: 'https://www.youtube.com/watch?v=nowy123456', tytul: 'Nowy', rodzaj: 'szczegolowe' };
   assert.deepStrictEqual(zapytaj(g11, { klucz: 'tajny', akcja: 'doTranskrypcji' }),
-    { filmy: [{ id: 'h1', url: 'https://youtu.be/dlugi12345', tytul: 'Długi podcast', rodzaj: 'krotkie' }] });
+    { filmy: [{ id: 'h1', url: 'https://youtu.be/dlugi12345', tytul: 'Długi podcast', rodzaj: 'krotkie' }, h8] },
+    'do Pobieracza: „do ręcznego” i filmy czekające na streszczenie (bez skrzynki i nie-YouTube)');
   assert.strictEqual(zapytaj(g11, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'h2', url: 'https://youtu.be/krotki1234' }).streszczenie.krotkie.tekst, 'Film.');
   assert.strictEqual(zapytaj(g11, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'h3', url: 'https://youtu.be/nieznany12' }).streszczenie.krotkie.tekst, 'Film.');
   g11.wlasciwosci.MAKS_MINUT_FILMU = '300';
@@ -362,7 +369,7 @@ assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 8);
   assert.strictEqual(s14.szczegolowe.model, 'wklejone');
   assert.strictEqual(s14.krotkie.tekst, 'Film.', 'wcześniejsze streszczenie zostaje');
   assert.strictEqual(g11.zapytaniaGemini.length, ileGemini, 'bez AI');
-  assert.deepStrictEqual(zapytaj(g11, { klucz: 'tajny', akcja: 'doTranskrypcji' }), { filmy: [] }, 'po streszczeniu film znika z listy');
+  assert.deepStrictEqual(zapytaj(g11, { klucz: 'tajny', akcja: 'doTranskrypcji' }), { filmy: [h8] }, 'po streszczeniu film znika z listy');
   assert.ok(zapytaj(g11, { klucz: 'tajny', akcja: 'streszczenia' }).streszczenia.some(x => x.id === 'h1' && x.szczegolowe), 'zapisane na Drive');
   assert.deepStrictEqual(zapytaj(g11, { klucz: 'tajny', akcja: 'zapiszGotowe', id: 'h1', tekst: 'krótko' }), { blad: 'za krótki tekst – wklej całe streszczenie' });
 
