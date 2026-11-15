@@ -33,7 +33,7 @@ const SKRYPT_GOOGLE = `/* Potok – pośrednik między aplikacją a Twoim Google
 const KLUCZ = 'WSTAW_KLUCZ';   // aplikacja wstawia tu Twój tajny klucz
 const WERSJA_SKRYPTU = 8;
 
-/** Zapytanie z aplikacji: { klucz, akcja: 'pobierz' | 'zapisz' | 'opis' | 'wersja' | 'streszczenia' | 'streszczTeraz' | 'zapiszGotowe', tresc?, url?, od?, id?, rodzaj? } */
+/** Zapytanie z aplikacji: { klucz, akcja: 'pobierz' | 'zapisz' | 'opis' | 'wersja' | 'streszczenia' | 'streszczTeraz' | 'zapiszGotowe' | 'doTranskrypcji', tresc?, url?, od?, id?, rodzaj? } */
 function doPost(e) {
   let dane;
   try { dane = JSON.parse(e.postData.contents); } catch (x) { return wynik({ blad: 'złe dane' }); }
@@ -43,6 +43,7 @@ function doPost(e) {
   if (dane.akcja === 'streszczenia') return wynik(odczytajStreszczenia(dane.od));
   if (dane.akcja === 'streszczTeraz') return wynik(streszczTeraz(dane));
   if (dane.akcja === 'zapiszGotowe') return wynik(zapiszGotowe(dane));
+  if (dane.akcja === 'doTranskrypcji') return wynik(doTranskrypcji());
 
   // Blokada: dwa urządzenia naraz nie nadpiszą sobie pliku w połowie zapisu.
   const blokada = LockService.getScriptLock();
@@ -355,7 +356,7 @@ function streszczJeden(folder, zadanie) {
     else if (film) {
       const sekundy = dlugoscFilmu(film);
       const maks = (parseInt(ustawienie('MAKS_MINUT_FILMU'), 10) || 50) * 60;
-      if (sekundy && sekundy > maks) return doRecznego('film ma ' + Math.round(sekundy / 60) + ' min – za długi na automat: wklej transkrypcję („Wklej tekst”) albo streść w NotebookLM');
+      if (sekundy && sekundy > maks) return doRecznego('film ma ' + Math.round(sekundy / 60) + ' min – za długi na automat: w Pobieraczu YT kliknij „Streść długie filmy z Potoku”, wklej transkrypcję („Wklej tekst”) albo streść w NotebookLM');
       material = { film };
     } else {
       const odp = UrlFetchApp.fetch(w.url, { muteHttpExceptions: true, followRedirects: true, headers: { 'Accept-Language': 'pl,en' } });
@@ -426,6 +427,27 @@ function zapiszGotowe(dane) {
   delete s.problem;
   zapiszStreszczenie(folder, s);
   return { streszczenie: s };
+}
+
+/**
+ * Dla Pobieracza YT (na komputerze): filmy z YouTube, których automat nie
+ * streścił („do ręcznego”, np. za długie). Pobieracz pobiera ich napisy
+ * i odsyła je akcją „streszczTeraz” z polem „tekst”.
+ */
+function doTranskrypcji() {
+  const tresc = plikPotoku().getBlob().getDataAsString('UTF-8');
+  const wpisy = tresc && tresc.trim() ? JSON.parse(tresc).wpisy || [] : [];
+  const folder = folderStreszczen();
+  const filmy = [];
+  for (const w of wpisy) {
+    if (!w.url || !filmYouTube(w.url)) continue;
+    const s = wczytajStreszczenie(folder, w.id);
+    if (!s || !s.doRecznego) continue;
+    for (const rodzaj of ['szczegolowe', 'krotkie']) {
+      if (s.doRecznego[rodzaj] && !(s[rodzaj] && s[rodzaj].tekst)) { filmy.push({ id: w.id, url: w.url, tytul: w.tytul || '', rodzaj }); break; }
+    }
+  }
+  return { filmy };
 }
 
 /** Długość filmu z YouTube w sekundach (ze strony filmu) albo null, gdy się nie da sprawdzić. */
