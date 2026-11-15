@@ -24,7 +24,7 @@ function esc(t) {
 }
 
 // Numer wersji aplikacji – podbijaj razem z WERSJA w sw.js.
-const WERSJA_APLIKACJI = 25;
+const WERSJA_APLIKACJI = 26;
 
 // Krótki komunikat na dole ekranu.
 function komunikat(tekst) {
@@ -358,20 +358,36 @@ function pokazStanEksportu() {
 
 // Jeden przycisk przy wpisie – na listach i w przeglądzie. Skrypt Google
 // robi streszczenie od razu (zwykle 10–60 s), potem odświeżamy widok.
-async function streszczTeraz(przycisk) {
+async function streszczTeraz(przycisk, tekst) {
   const w = Magazyn.wczytaj().find(x => x.id === przycisk.dataset.streszcz);
   if (!w) return;
   if (!navigator.onLine) return komunikat('Bez internetu – spróbuj, gdy wróci sieć.');
   przycisk.disabled = true;
   przycisk.textContent = '⏳ Streszczam… (film może potrwać kilka minut)';
   try {
-    const s = await Streszczenia.teraz(w, przycisk.dataset.rodzaj);
+    const s = await Streszczenia.teraz(w, przycisk.dataset.rodzaj, tekst);
     const r = przycisk.dataset.rodzaj;
     komunikat(s[r] ? 'Streszczenie gotowe.'
       : s.doRecznego && s.doRecznego[r] ? 'Nie da się streścić automatycznie: ' + s.doRecznego[r]
       : 'Nie udało się: ' + (s.problem || 'nieznany problem'));
   } catch (e) {
     komunikat('Nie udało się: ' + e.message);
+  }
+  pokazWidok(aktualnyWidok);
+}
+
+// Gotowe streszczenie (np. z NotebookLM) zapisywane przy wpisie bez AI.
+async function zapiszGotowe(przycisk, tekst) {
+  const w = Magazyn.wczytaj().find(x => x.id === przycisk.dataset.gotowe);
+  if (!w) return;
+  if (!navigator.onLine) return komunikat('Bez internetu – spróbuj, gdy wróci sieć.');
+  przycisk.disabled = true;
+  przycisk.textContent = '⏳ Zapisuję…';
+  try {
+    await Streszczenia.zapiszGotowe(w, przycisk.dataset.rodzaj, tekst);
+    komunikat('Streszczenie zapisane przy wpisie (na Twoim Drive).');
+  } catch (e) {
+    komunikat('Nie udało się zapisać: ' + e.message);
   }
   pokazWidok(aktualnyWidok);
 }
@@ -385,7 +401,30 @@ document.addEventListener('DOMContentLoaded', () => {
   // „Streść teraz” – przyciski powstają przy każdym rysowaniu listy, więc jeden nasłuch na całą stronę.
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-streszcz]');
-    if (b && !b.disabled) streszczTeraz(b);
+    if (b && !b.disabled) {
+      // Przycisk pod polem „Wklej tekst” wysyła wklejony tekst; zwykły – sam link.
+      const pole = b.dataset.zTekstu ? b.parentElement.querySelector('textarea') : null;
+      if (pole && pole.value.trim().length < 200) return komunikat('Wklej całą transkrypcję albo tekst artykułu (co najmniej kilka zdań).');
+      streszczTeraz(b, pole ? pole.value : undefined);
+      return;
+    }
+    // „Zapisz jako streszczenie” – wklejone gotowe streszczenie (np. z NotebookLM), bez AI.
+    const g = e.target.closest('[data-gotowe]');
+    if (g && !g.disabled) {
+      const tekst = g.parentElement.querySelector('textarea').value.trim();
+      if (tekst.length < 50) return komunikat('Wklej całe gotowe streszczenie (np. z NotebookLM).');
+      zapiszGotowe(g, tekst);
+      return;
+    }
+    // „Wklej tekst” – pole na transkrypcję / artykuł / gotowe streszczenie pod przyciskami.
+    const wk = e.target.closest('[data-wklej]');
+    if (wk && !wk.parentElement.nextElementSibling?.classList.contains('wklej-tekst')) {
+      wk.parentElement.insertAdjacentHTML('afterend', `<div class="wklej-tekst">
+        <textarea rows="6" placeholder="Wklej transkrypcję filmu (np. z Pobieracza YT) albo tekst artykułu – albo gotowe streszczenie, np. z NotebookLM"></textarea>
+        <button data-streszcz="${esc(wk.dataset.wklej)}" data-rodzaj="${esc(wk.dataset.rodzaj)}" data-z-tekstu="1">✨ Streść ten tekst</button>
+        <button data-gotowe="${esc(wk.dataset.wklej)}" data-rodzaj="${esc(wk.dataset.rodzaj)}">💾 Zapisz jako streszczenie</button></div>`);
+      wk.parentElement.nextElementSibling.querySelector('textarea').focus();
+    }
   });
   // Checkbox „Streścić” pod opisem: dopisuje / zdejmuje „Streścić ” na początku opisu.
   $('#dodaj-strescic').onchange = e => {

@@ -54,6 +54,13 @@ async function obsluzSkrypt(route) {
     drive.streszczenia.push(st);
     return odp({ streszczenie: st });
   }
+  // „Zapisz jako streszczenie” (gotowe, np. z NotebookLM) – od wersji 8.
+  if (dane.akcja === 'zapiszGotowe' && drive.wersjaSkryptu >= 8) {
+    const st = { id: dane.id, zmieniono: new Date().toISOString() };
+    st[dane.rodzaj] = { tekst: dane.tekst, model: 'wklejone', data: new Date().toISOString() };
+    drive.streszczenia.push(st);
+    return odp({ streszczenie: st });
+  }
   return odp({ blad: 'nieznana akcja' });
 }
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': '*' };
@@ -231,14 +238,14 @@ async function scenariusz(przegladarka, tryb) {
     await komp.s.waitForSelector('#skrypt-aktualizacja', { state: 'visible', timeout: 10000 });
     await komp.s.click('#pokaz-nowy-skrypt');
     const nowy = await komp.s.inputValue('#nowy-skrypt-tekst');
-    assert(nowy.includes("const KLUCZ = 'TAJNY-KLUCZ'") && nowy.includes('WERSJA_SKRYPTU = 7') && nowy.includes('function sprawdzTytuly') && nowy.includes('function wlaczStreszczenia'), 'nowy skrypt bez klucza lub wersji');
+    assert(nowy.includes("const KLUCZ = 'TAJNY-KLUCZ'") && nowy.includes('WERSJA_SKRYPTU = 8') && nowy.includes('function sprawdzTytuly') && nowy.includes('function wlaczStreszczenia'), 'nowy skrypt bez klucza lub wersji');
     // Skrypt w wersji 3 (tytuły działają, streszczeń brak) – ramka dalej prosi o wersję 4.
     drive.wersjaSkryptu = 3;
     await komp.s.click('#sync-teraz');
     await komp.s.waitForFunction(() => Magazyn.wczytaj().find(w => w.url === 'https://example.com/z-komputera').autor === 'Autor testowy', null, { timeout: 15000 });
     await komp.s.waitForFunction(() => Streszczenia.skryptStary(), null, { timeout: 10000 });
     assert(await komp.s.isVisible('#skrypt-aktualizacja'), 'przy skrypcie v3 brak prośby o wersję 4');
-    drive.wersjaSkryptu = 7;   // „wdrożono nową wersję”
+    drive.wersjaSkryptu = 8;   // „wdrożono nową wersję”
     await komp.s.click('#sync-teraz');
     await komp.s.waitForFunction(() => Magazyn.wczytaj().find(w => w.url === 'https://example.com/z-komputera').autor === 'Autor testowy', null, { timeout: 15000 });
     // Na komputerze: link z YouTube + dopisane „Streścić” → tytuł i autor też się pobierają, podpowiedź zostaje.
@@ -294,6 +301,16 @@ async function scenariusz(przegladarka, tryb) {
     await komp.s.waitForSelector('#lista details.szczegolowe', { timeout: 15000 });
     assert.match(await komp.s.textContent('#lista details.szczegolowe'), /Na żądanie: /);
     assert.strictEqual(await komp.s.locator('#lista [data-streszcz]').count(), 0, 'po streszczeniu przycisk znika');
+    // „Wklej tekst” → „Zapisz jako streszczenie”: gotowe streszczenie z NotebookLM zapisane bez AI.
+    const w11 = await komp.s.evaluate(() => Magazyn.wczytaj().find(x => (x.url || '').startsWith('http') && !(x.url || '').includes('komp123')));
+    await komp.s.evaluate(id => Magazyn.zmienStatus(id, 'szczegolowo'), w11.id);
+    await komp.s.click('#statusy [data-lista=szczegolowo]');
+    await komp.s.click(`#lista [data-wklej="${w11.id}"]`);
+    await komp.s.fill('#lista .wklej-tekst textarea', 'Streszczenie z NotebookLM: najważniejsze wnioski z rozmowy, akapit pierwszy.');
+    await komp.s.click(`#lista [data-gotowe="${w11.id}"]`);
+    await komp.s.waitForFunction(id => Streszczenia.dla(id)?.szczegolowe, w11.id, { timeout: 15000 });
+    assert.match(await komp.s.textContent('#lista'), /Szczegółowe streszczenie \(wklejone,.*Streszczenie z NotebookLM/s);
+    await komp.s.evaluate(id => Magazyn.zmienStatus(id, 'skrzynka'), w11.id);
     await komp.s.click('nav [data-widok=eksport]');
     assert.match(await komp.s.textContent('#stan-streszczen-ai'), /Streszczenia AI: gotowe 1 · do ręcznego 0 · czekają 0/);
     await czekajWysylke(komp.s);

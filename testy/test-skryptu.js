@@ -125,13 +125,13 @@ assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'opis', url: 'https:/
 const strony = g.strony; g.strony = new Proxy({}, { get: () => { throw new Error('Nie masz uprawnień do wywołania UrlFetchApp.fetch'); } });
 assert.match(zapytaj(g, { klucz: 'tajny', akcja: 'opis', url: 'https://danluu.com/ambitious' }).problem, /uprawnień/);
 g.strony = strony;
-assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'wersja' }), { wersja: 7 });
+assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'wersja' }), { wersja: 8 });
 assert.deepStrictEqual(zapytaj(g, { klucz: 'zly', akcja: 'wersja' }), { blad: 'zły klucz' });
 g.strony['https://www.youtube.com/oembed?format=json&url=' + encodeURIComponent('https://www.youtube.com/watch?v=jNQXAC9IVRw')] = { tekst: JSON.stringify({ title: 'Me at the zoo', author_name: 'jawed' }) };
 assert.strictEqual(g.sprawdzTytuly().tytul, 'Me at the zoo');
 assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'opis', url: 'file:///C:/x' }), { blad: 'zły adres' });
 assert.deepStrictEqual(zapytaj(g, { klucz: 'zly', akcja: 'opis', url: yt }), { blad: 'zły klucz' });
-assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 7);
+assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 8);
 
 // 4. Streszczenia (wersja 4).
 {
@@ -216,7 +216,7 @@ assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 7);
   zapytaj(g2, { klucz: 'tajny', akcja: 'zapisz', tresc: JSON.stringify({ wersja: 1, wpisy: [wpisy[0], { ...wpisy[0], id: 'b2' }] }) });
   g2.gemini = () => ({ kod: 429, odpowiedz: { error: { message: 'Quota exceeded' } } });
   const w429 = g2.streszczajCoGodzine();
-  assert.deepStrictEqual(g2.zapytaniaGemini.map(z => z.model), ['inny-model', 'gemini-3.8-flash', 'gemini-2.5-flash'],
+  assert.deepStrictEqual(g2.zapytaniaGemini.map(z => z.model), ['inny-model', 'gemini-3.8-flash'],
     'po 429 każdy model z listy raz (osobne limity), potem przerwa w tym uruchomieniu');
   assert.strictEqual(w429.czeka, 2);
   const s429 = JSON.parse(g2.foldery[0].podfoldery[0].pliki[0].tresc);
@@ -310,7 +310,7 @@ assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 7);
   g9.wlasciwosci.GEMINI_KLUCZ = 'k';
   g9.gemini = () => { throw new Error('Przekroczono limit czasu: https://generativelanguage.googleapis.com'); };
   const s9 = zapytaj(g9, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'f1', url: 'https://www.youtube.com/watch?v=dlugifilm1' }).streszczenie;
-  assert.strictEqual(g9.zapytaniaGemini.length, 3, 'po jednym zapytaniu na model, bez ponawiania tego samego');
+  assert.strictEqual(g9.zapytaniaGemini.length, 2, 'po jednym zapytaniu na model, bez ponawiania tego samego');
   assert.match(s9.problem, /brak odpowiedzi.*długi film/);
   assert.strictEqual(s9.proby, undefined);
   // Budżet 4 minut: po jego przekroczeniu kolejne modele nie są już pytane.
@@ -321,6 +321,58 @@ assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 7);
   g10.gemini = () => { zegar10 += 5 * 60 * 1000; return { kod: 503, odpowiedz: { error: { message: 'slow' } } }; };
   zapytaj(g10, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'f2', url: 'https://www.youtube.com/watch?v=dlugifilm2' });
   assert.strictEqual(g10.zapytaniaGemini.length, 1, 'po przekroczeniu budżetu czasu – koniec prób');
+
+  // Długi film (ponad 50 min): od razu „do ręcznego” z długością, bez pytania Gemini.
+  // Krótszy – normalnie. Długości nie da się sprawdzić – normalnie.
+  const g11 = nowyGoogle();
+  g11.wlasciwosci.GEMINI_KLUCZ = 'k';
+  g11.strony['https://www.youtube.com/watch?v=dlugi12345'] = { tekst: '<script>var x={"lengthSeconds":"16200"};</script>' };
+  g11.strony['https://www.youtube.com/watch?v=krotki1234'] = { tekst: '<script>var x={"lengthSeconds":"1500"};</script>' };
+  g11.gemini = () => ({ odpowiedz: { candidates: [{ content: { parts: [{ text: 'Film.' }] } }] } });
+  const s11 = zapytaj(g11, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'h1', url: 'https://youtu.be/dlugi12345' }).streszczenie;
+  assert.match(s11.doRecznego.krotkie, /film ma 270 min – za długi/);
+  assert.strictEqual(g11.zapytaniaGemini.length, 0);
+  // Pobieracz YT pyta o filmy do transkrypcji: tylko YouTube „do ręcznego” bez streszczenia.
+  zapytaj(g11, { klucz: 'tajny', akcja: 'zapisz', tresc: JSON.stringify({ wersja: 1, wpisy: [
+    { id: 'h1', url: 'https://youtu.be/dlugi12345', tytul: 'Długi podcast', status: 'skrzynka' },
+    { id: 'h9', url: 'https://example.com/a', status: 'do_streszczenia' }] }) });
+  assert.deepStrictEqual(zapytaj(g11, { klucz: 'tajny', akcja: 'doTranskrypcji' }),
+    { filmy: [{ id: 'h1', url: 'https://youtu.be/dlugi12345', tytul: 'Długi podcast', rodzaj: 'krotkie' }] });
+  assert.strictEqual(zapytaj(g11, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'h2', url: 'https://youtu.be/krotki1234' }).streszczenie.krotkie.tekst, 'Film.');
+  assert.strictEqual(zapytaj(g11, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'h3', url: 'https://youtu.be/nieznany12' }).streszczenie.krotkie.tekst, 'Film.');
+  g11.wlasciwosci.MAKS_MINUT_FILMU = '300';
+  assert.strictEqual(zapytaj(g11, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'h1', url: 'https://youtu.be/dlugi12345' }).streszczenie.krotkie.tekst, 'Film.', 'limit minut jako ustawienie');
+  // „Wklej tekst”: wklejona transkrypcja streszczana bez pobierania strony (także dla długiego filmu i Facebooka).
+  g11.wlasciwosci.MAKS_MINUT_FILMU = '50';
+  const ileStron = Object.keys(g11.strony).length;
+  const transkrypcja = 'Rozmowa o psychiatrii i historii szpitali. '.repeat(30);
+  const s13 = zapytaj(g11, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'h4', url: 'https://youtu.be/dlugi12345', tytul: 'Podcast', tekst: transkrypcja }).streszczenie;
+  assert.strictEqual(s13.krotkie.tekst, 'Film.');
+  assert.strictEqual(s13.zTekstu, true);
+  const ostatnieZap = g11.zapytaniaGemini[g11.zapytaniaGemini.length - 1].dane.contents[0].parts[0];
+  assert.ok(ostatnieZap.text.includes('Tytuł: Podcast') && ostatnieZap.text.includes('Rozmowa o psychiatrii') && !ostatnieZap.fileData, 'wysłany sam tekst');
+  assert.strictEqual(zapytaj(g11, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'h5', url: 'https://www.facebook.com/reel/9', tekst: transkrypcja }).streszczenie.krotkie.tekst, 'Film.');
+  assert.deepStrictEqual(zapytaj(g11, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'h6', url: 'https://example.com/x', tekst: 'za mało' }), { blad: 'za krótki tekst – wklej całą transkrypcję albo artykuł' });
+  assert.strictEqual(Object.keys(g11.strony).length, ileStron);
+  // „Zapisz jako streszczenie”: gotowy tekst (np. z NotebookLM) zapisany bez pytania AI.
+  const ileGemini = g11.zapytaniaGemini.length;
+  const gotowe = 'Streszczenie z NotebookLM. '.repeat(5);
+  const s14 = zapytaj(g11, { klucz: 'tajny', akcja: 'zapiszGotowe', id: 'h1', rodzaj: 'szczegolowe', tekst: gotowe }).streszczenie;
+  assert.strictEqual(s14.szczegolowe.tekst, gotowe.trim());
+  assert.strictEqual(s14.szczegolowe.model, 'wklejone');
+  assert.strictEqual(s14.krotkie.tekst, 'Film.', 'wcześniejsze streszczenie zostaje');
+  assert.strictEqual(g11.zapytaniaGemini.length, ileGemini, 'bez AI');
+  assert.deepStrictEqual(zapytaj(g11, { klucz: 'tajny', akcja: 'doTranskrypcji' }), { filmy: [] }, 'po streszczeniu film znika z listy');
+  assert.ok(zapytaj(g11, { klucz: 'tajny', akcja: 'streszczenia' }).streszczenia.some(x => x.id === 'h1' && x.szczegolowe), 'zapisane na Drive');
+  assert.deepStrictEqual(zapytaj(g11, { klucz: 'tajny', akcja: 'zapiszGotowe', id: 'h1', tekst: 'krótko' }), { blad: 'za krótki tekst – wklej całe streszczenie' });
+
+  // Błędy wszystkich modeli widać razem (np. przeciążony główny + wycofany zapasowy).
+  const g12 = nowyGoogle();
+  g12.wlasciwosci.GEMINI_KLUCZ = 'k';
+  g12.strony['https://example.com/dlugi'] = { tekst: dlugi };
+  g12.gemini = z => z.model === 'gemini-3.5-flash-lite' ? { kod: 503, odpowiedz: { error: { message: 'high demand' } } } : { kod: 404, odpowiedz: { error: { message: 'no longer available' } } };
+  const p12 = zapytaj(g12, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'i1', url: 'https://example.com/dlugi' }).streszczenie.problem;
+  assert.match(p12, /gemini-3\.5-flash-lite.*503.*gemini-3\.8-flash.*404/);
 
   // wlaczStreszczenia: próbne streszczenie + jeden harmonogram co godzinę (bez dubli).
   g5.wlaczStreszczenia();

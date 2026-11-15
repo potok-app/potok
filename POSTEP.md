@@ -1,5 +1,17 @@
 # Potok – postęp prac i decyzje
 
+## 15.11.2026 (6) – długie filmy do ręcznego, „Wklej tekst”, zapis streszczeń z NotebookLM, Pobieracz YT (skrypt v8, aplikacja v26)
+- Objaw: kilkugodzinny podcast (np. Lex Fridman) nie streszczał się – darmowy Gemini nie mieści takiego filmu w limicie czasu i tokenów, a model `gemini-2.5-flash` zwracał 404 („no longer available to new users”).
+- Decyzja: automat ma zostać prosty i utrzymywalny. Rozważane i odrzucone: dzielenie filmu na części (więcej zapytań, więcej miejsc na błąd – „to będzie koszmar”), automatyczne pobieranie transkrypcji z YouTube (kruche, YouTube często to zmienia), płatny Gemini (wbrew zasadzie „bez abonamentu”).
+- Skrypt v8: film dłuższy niż `MAKS_MINUT_FILMU` (ustawienie, domyślnie 50) od razu trafia „do ręcznego” z podaną długością – bez wysyłania do Gemini. Modele zapasowe: tylko `gemini-3.8-flash` (2.5 usunięty). Gdy żaden model nie zadziała, błąd zbiera komunikaty wszystkich modeli.
+- **„📋 Wklej tekst”** przy wpisie otwiera pole, a pod nim dwa przyciski:
+  - **„✨ Streść ten tekst”** – wklejona transkrypcja (np. z Pobieracza YT) albo tekst artykułu zza paywalla idzie do AI zamiast strony/filmu (akcja `streszczTeraz` z polem `tekst`, min. 200 znaków).
+  - **„💾 Zapisz jako streszczenie”** – gotowe streszczenie (np. z NotebookLM, po „daj bardziej szczegółowe streszczenie”) zapisuje się przy wpisie bez AI (akcja `zapiszGotowe`, opis „wklejone”). Powód: darmowy NotebookLM ma limit 50 notatników; wartościowe streszczenie trafia do Potoku, a notatnik można usunąć.
+- Streszczenia przy wpisach są domyślnie zwinięte (widać tylko nagłówek „Streszczenie (model, data)”), rozwijają się i zwijają kliknięciem. Powód: rozwinięte, długie streszczenia na telefonie wymagały dużo przewijania.
+- **Połączenie z Pobieraczem YT** (prośba: „nie widzę sensu ręcznego operowania Pobieraczem i wklejania”): nowa akcja skryptu `doTranskrypcji` zwraca filmy YouTube „do ręcznego” bez streszczenia. Pobieracz YT 1.7 (na komputerze, osobny program) ma przycisk „✨ Streść długie filmy z Potoku”: pobiera ich napisy przez yt-dlp i wysyła je akcją `streszczTeraz` z polem `tekst`. Pobieracz potrzebuje tylko kodu połączenia z „Pliki → Kopiuj kod połączenia”. Dlaczego na komputerze: YouTube blokuje pobieranie napisów z serwerów Google, a z domowego komputera yt-dlp działa.
+- Jak postępować z długim filmem: poza domem NotebookLM (albo zostawić „do ręcznego” na później), w domu jedno kliknięcie w Pobieraczu („Streść długie filmy z Potoku”) albo NotebookLM.
+- Testy: długi film → do ręcznego (bez Gemini), ustawienie limitu minut, wklejony tekst, za krótki tekst, zapis gotowego streszczenia bez AI, zbiorczy błąd modeli; e2e-drive: „Wklej tekst” → „Zapisz jako streszczenie”.
+
 ## 15.11.2026 (5) – długie filmy: limit czasu zamiast zawieszenia (skrypt v7)
 - Objaw: „Streść teraz” przy długim podcaście z YouTube – po chwili przycisk wraca, a przy wpisie nadal „w kolejce”, bez żadnego błędu. Pierwszy link (krótszy) streścił się poprawnie.
 - Przyczyna (najbardziej prawdopodobna): Google przerywa pojedyncze zapytanie skryptu po ok. 60 s, a cały skrypt po 6 min. Gemini przy długim filmie potrafi nie odpowiedzieć w minutę; skrypt v6 próbował wtedy kolejnych modeli (z ponowieniami), aż Google uciął całe wykonanie – aplikacja nie dostała odpowiedzi, a nic się nie zapisało.

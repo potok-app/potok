@@ -19,12 +19,17 @@
    Wersja 6: przy przeciążeniu Gemini (kod 503) ponowna próba, potem modele
    zapasowe (MODELE_ZAPASOWE) – każdy model ma u Google osobny limit.
    Wersja 7: brak odpowiedzi Gemini (przekroczony czas, np. długi film) nie
-   zawiesza „Streść teraz” – po 4 minutach skrypt kończy z czytelnym błędem. */
+   zawiesza „Streść teraz” – po 4 minutach skrypt kończy z czytelnym błędem.
+   Wersja 8: filmy dłuższe niż 50 min od razu „do ręcznego” (z długością) –
+   nie mieszczą się w jednym darmowym zapytaniu, a dzielenie ich na części
+   to za dużo kodu do utrzymania (decyzja z 15.11.2026). Zamiast tego „Wklej
+   tekst” w aplikacji: wklejona transkrypcja albo tekst artykułu (akcja
+   „streszczTeraz” z polem „tekst”) jest streszczana jak każdy inny materiał. */
 
 const KLUCZ = 'WSTAW_KLUCZ';   // aplikacja wstawia tu Twój tajny klucz
-const WERSJA_SKRYPTU = 7;
+const WERSJA_SKRYPTU = 8;
 
-/** Zapytanie z aplikacji: { klucz, akcja: 'pobierz' | 'zapisz' | 'opis' | 'wersja' | 'streszczenia' | 'streszczTeraz', tresc?, url?, od?, id?, rodzaj? } */
+/** Zapytanie z aplikacji: { klucz, akcja: 'pobierz' | 'zapisz' | 'opis' | 'wersja' | 'streszczenia' | 'streszczTeraz' | 'zapiszGotowe' | 'doTranskrypcji', tresc?, url?, od?, id?, rodzaj? } */
 function doPost(e) {
   let dane;
   try { dane = JSON.parse(e.postData.contents); } catch (x) { return wynik({ blad: 'złe dane' }); }
@@ -33,6 +38,8 @@ function doPost(e) {
   if (dane.akcja === 'opis') return wynik(opisStrony(dane.url));
   if (dane.akcja === 'streszczenia') return wynik(odczytajStreszczenia(dane.od));
   if (dane.akcja === 'streszczTeraz') return wynik(streszczTeraz(dane));
+  if (dane.akcja === 'zapiszGotowe') return wynik(zapiszGotowe(dane));
+  if (dane.akcja === 'doTranskrypcji') return wynik(doTranskrypcji());
 
   // Blokada: dwa urządzenia naraz nie nadpiszą sobie pliku w połowie zapisu.
   const blokada = LockService.getScriptLock();
@@ -101,6 +108,7 @@ function sprawdzTytuly() {
      MODEL_KROTKI       model do krótkich streszczeń
      MODEL_SZCZEGOLOWY  model do szczegółowych streszczeń
      MODELE_ZAPASOWE    modele po przecinku, gdy główny jest przeciążony lub bez limitu
+     MAKS_MINUT_FILMU   dłuższe filmy z YouTube idą od razu „do ręcznego” (domyślnie 50)
      OLLAMA_ADRES       np. https://moj-tunel.example (tylko dla SILNIK=ollama)
      OLLAMA_MODEL       np. SpeakLeash/bielik-4.5b-v3.0-instruct:Q8_0
      NA_RAZ             ile wpisów streszczać w jednym uruchomieniu (co godzinę)
@@ -114,13 +122,17 @@ const USTAWIENIA_DOMYSLNE = {
   MODEL_SZCZEGOLOWY: 'gemini-3.5-flash-lite',
   // Gdy model jest przeciążony (kod 503) albo wyczerpał dzienny limit (429),
   // skrypt próbuje kolejnych z tej listy (po przecinku).
-  MODELE_ZAPASOWE: 'gemini-3.8-flash,gemini-2.5-flash',
+  // gemini-2.5-flash usunięty 15.11.2026 – Google nie udostępnia go już nowym kontom.
+  MODELE_ZAPASOWE: 'gemini-3.8-flash',
+  // Filmy dłuższe niż tyle minut – od razu do ręcznego streszczenia (np. w NotebookLM).
+  MAKS_MINUT_FILMU: '50',
   OLLAMA_ADRES: '',
   OLLAMA_MODEL: 'SpeakLeash/bielik-4.5b-v3.0-instruct:Q8_0',
   NA_RAZ: '6',
 };
 const MAKS_PROB = 3;            // po tylu nieudanych próbach: „do ręcznego streszczenia”
-const MAKS_ZNAKOW = 200000;     // ok. 50 tys. słów – więcej tekstu nie wysyłamy
+const MAKS_ZNAKOW = 200000;     // ok. 50 tys. słów – więcej tekstu ze strony nie wysyłamy
+const MAKS_WKLEJONEGO = 400000; // wklejona transkrypcja: do ok. 100 tys. słów (kilkugodzinny podcast)
 const MIN_ZNAKOW = 600;         // mniej tekstu = raczej logowanie albo paywall
 
 const POLECENIE = {
@@ -241,6 +253,7 @@ function zapytajSilnik(rodzaj, material) {
       ? [{ fileData: { fileUri: material.film }, videoMetadata: { fps: 0.1 } }, { text: polecenie }]
       : [{ text: polecenie + '\n\n---\n' + material.tekst }];
     let ostatni;
+    const bledy = [];
     // Google przerywa skrypt po 6 minutach, a pojedyncze zapytanie po ok. 60 s.
     // Długi film potrafi nie zmieścić się w minucie – wtedy nie próbujemy w kółko,
     // tylko kończymy z czytelnym błędem, zanim Google utnie cały skrypt.
@@ -250,7 +263,7 @@ function zapytajSilnik(rodzaj, material) {
       // Przeciążenie (503/500) zwykle mija po chwili – jedna ponowna próba tym samym modelem.
       for (let proba = 0; proba < 2; proba++) {
         if (Date.now() - start > BUDZET_MS) {
-          const e = ostatni || new Error('Gemini: brak odpowiedzi w 4 minuty');
+          const e = new Error(bledy.concat('brak czasu na kolejne próby').join(' · ').slice(0, 600));
           e.limit = true;
           throw e;
         }
@@ -267,6 +280,7 @@ function zapytajSilnik(rodzaj, material) {
           ostatni = new Error('Gemini (' + model + '): brak odpowiedzi – ' + String(x && x.message || x).slice(0, 150) +
             (material.film ? ' (długi film? spróbuj później albo streść ręcznie)' : ''));
           ostatni.limit = true;
+          bledy.push(ostatni.message);
           break;
         }
         const kod = odp.getResponseCode();
@@ -281,12 +295,16 @@ function zapytajSilnik(rodzaj, material) {
         ostatni = new Error('Gemini (' + model + '): kod ' + kod + (o.error && o.error.message ? ' – ' + o.error.message.slice(0, 200) : ''));
         // Limit, przeciążenie, nieznany model – to nie wina wpisu: nie liczymy próby.
         ostatni.limit = [429, 500, 503, 404].includes(kod);
-        if (kod === 500 || kod === 503) continue;   // ponów ten sam model
+        if (kod === 500 || kod === 503) { if (proba) bledy.push(ostatni.message); continue; }   // ponów ten sam model
+        bledy.push(ostatni.message);
         break;                                      // 429 / 404 – od razu następny model
       }
       if (!ostatni.limit) throw ostatni;            // np. 400 – zły materiał, inny model nie pomoże
     }
-    throw ostatni;
+    // Błędy wszystkich modeli naraz – żeby było widać prawdziwą przyczynę, a nie tylko ostatnią.
+    const e = new Error(bledy.join(' · ').slice(0, 600));
+    e.limit = true;
+    throw e;
   }
   if (silnik === 'ollama') {
     // Ollama na Twoim komputerze – skrypt Google musi mieć do niej adres z internetu
@@ -322,11 +340,21 @@ function streszczJeden(folder, zadanie) {
     return 'ręcznie';
   };
   try {
-    if (wymagaLogowania(w.url)) return doRecznego('strona wymaga logowania – streść ręcznie');
-    const film = filmYouTube(w.url);
     let material;
-    if (film) material = { film };
-    else {
+    // Tekst wklejony w aplikacji (transkrypcja, artykuł zza paywalla) – bez pobierania strony.
+    if (zadanie.tekst) {
+      material = { tekst: (w.tytul ? 'Tytuł: ' + w.tytul + '\n\n' : '') + String(zadanie.tekst).slice(0, MAKS_WKLEJONEGO) };
+      s.zTekstu = true;
+    }
+    const film = !material && filmYouTube(w.url);
+    if (material) { /* już mamy tekst */ }
+    else if (wymagaLogowania(w.url)) return doRecznego('strona wymaga logowania – streść ręcznie albo wklej tekst');
+    else if (film) {
+      const sekundy = dlugoscFilmu(film);
+      const maks = (parseInt(ustawienie('MAKS_MINUT_FILMU'), 10) || 50) * 60;
+      if (sekundy && sekundy > maks) return doRecznego('film ma ' + Math.round(sekundy / 60) + ' min – za długi na automat: w Pobieraczu YT kliknij „Streść długie filmy z Potoku”, wklej transkrypcję („Wklej tekst”) albo streść w NotebookLM');
+      material = { film };
+    } else {
       const odp = UrlFetchApp.fetch(w.url, { muteHttpExceptions: true, followRedirects: true, headers: { 'Accept-Language': 'pl,en' } });
       const kod = odp.getResponseCode();
       if (kod === 401 || kod === 403) return doRecznego('strona nie wpuszcza (kod ' + kod + ') – streść ręcznie');
@@ -367,12 +395,65 @@ function streszczTeraz(dane) {
   if (s.doRecznego) delete s.doRecznego[rodzaj];
   if (s.proby) delete s.proby[rodzaj];
   try {
-    streszczJeden(folder, { w: { id: dane.id, url: dane.url, tytul: dane.tytul || '' }, s, rodzaj });
+    const tekst = String(dane.tekst || '').trim();
+    if (dane.tekst !== undefined && tekst.length < 200) return { blad: 'za krótki tekst – wklej całą transkrypcję albo artykuł' };
+    streszczJeden(folder, { w: { id: dane.id, url: dane.url, tytul: dane.tytul || '' }, s, rodzaj, tekst: tekst || null });
   } catch (x) {
     // Limit Gemini, brak klucza albo wyłączony silnik – problem jest już zapisany w s.
     s.problem = String(x && x.message || x);
   }
   return { streszczenie: s };
+}
+
+/**
+ * „Zapisz jako streszczenie”: gotowe streszczenie wklejone z aplikacji
+ * (np. z NotebookLM) zapisuje się przy wpisie bez pytania AI – notatnik
+ * w NotebookLM można potem usunąć.
+ */
+function zapiszGotowe(dane) {
+  const rodzaj = dane.rodzaj === 'szczegolowe' ? 'szczegolowe' : 'krotkie';
+  const tekst = String(dane.tekst || '').trim();
+  if (!dane.id) return { blad: 'brak wpisu' };
+  if (tekst.length < 50) return { blad: 'za krótki tekst – wklej całe streszczenie' };
+  const folder = folderStreszczen();
+  const s = wczytajStreszczenie(folder, dane.id) || { id: dane.id };
+  s[rodzaj] = { tekst: tekst.slice(0, MAKS_WKLEJONEGO), model: 'wklejone', data: new Date().toISOString() };
+  if (s.doRecznego) delete s.doRecznego[rodzaj];
+  if (s.proby) delete s.proby[rodzaj];
+  delete s.problem;
+  zapiszStreszczenie(folder, s);
+  return { streszczenie: s };
+}
+
+/**
+ * Dla Pobieracza YT (na komputerze): filmy z YouTube, których automat nie
+ * streścił („do ręcznego”, np. za długie). Pobieracz pobiera ich napisy
+ * i odsyła je akcją „streszczTeraz” z polem „tekst”.
+ */
+function doTranskrypcji() {
+  const tresc = plikPotoku().getBlob().getDataAsString('UTF-8');
+  const wpisy = tresc && tresc.trim() ? JSON.parse(tresc).wpisy || [] : [];
+  const folder = folderStreszczen();
+  const filmy = [];
+  for (const w of wpisy) {
+    if (!w.url || !filmYouTube(w.url)) continue;
+    const s = wczytajStreszczenie(folder, w.id);
+    if (!s || !s.doRecznego) continue;
+    for (const rodzaj of ['szczegolowe', 'krotkie']) {
+      if (s.doRecznego[rodzaj] && !(s[rodzaj] && s[rodzaj].tekst)) { filmy.push({ id: w.id, url: w.url, tytul: w.tytul || '', rodzaj }); break; }
+    }
+  }
+  return { filmy };
+}
+
+/** Długość filmu z YouTube w sekundach (ze strony filmu) albo null, gdy się nie da sprawdzić. */
+function dlugoscFilmu(film) {
+  try {
+    const odp = UrlFetchApp.fetch(film, { muteHttpExceptions: true, headers: { 'Accept-Language': 'pl,en' } });
+    if (odp.getResponseCode() !== 200) return null;
+    const m = odp.getContentText().match(/"lengthSeconds":"(\d+)"/);
+    return m ? parseInt(m[1], 10) : null;
+  } catch (x) { return null; }
 }
 
 /** Uruchamiana co godzinę przez harmonogram (i ręcznie, do sprawdzenia). */
