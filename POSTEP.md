@@ -7,6 +7,7 @@
 - **„📋 Wklej tekst”** przy wpisie otwiera pole, a pod nim dwa przyciski:
   - **„✨ Streść ten tekst”** – wklejona transkrypcja (np. z Pobieracza YT) albo tekst artykułu zza paywalla idzie do AI zamiast strony/filmu (akcja `streszczTeraz` z polem `tekst`, min. 200 znaków).
   - **„💾 Zapisz jako streszczenie”** – gotowe streszczenie (np. z NotebookLM, po „daj bardziej szczegółowe streszczenie”) zapisuje się przy wpisie bez AI (akcja `zapiszGotowe`, opis „wklejone”). Powód: darmowy NotebookLM ma limit 50 notatników; wartościowe streszczenie trafia do Potoku, a notatnik można usunąć.
+- Streszczenia przy wpisach są domyślnie zwinięte (widać tylko nagłówek „Streszczenie (model, data)”), rozwijają się i zwijają kliknięciem. Powód: rozwinięte, długie streszczenia na telefonie wymagały dużo przewijania.
 - Jak postępować z długim filmem: poza domem NotebookLM (albo zostawić „do ręcznego” na później), w domu NotebookLM albo Pobieracz + „Wklej tekst”.
 - Testy: długi film → do ręcznego (bez Gemini), ustawienie limitu minut, wklejony tekst, za krótki tekst, zapis gotowego streszczenia bez AI, zbiorczy błąd modeli; e2e-drive: „Wklej tekst” → „Zapisz jako streszczenie”.
 

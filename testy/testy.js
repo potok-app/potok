@@ -422,6 +422,7 @@ test('streszczenia: zapamiętane, nowsze zastępują starsze, html bez wstrzykiw
   const h = Streszczenia.html({ id: 's1', url: 'https://a.pl', status: 'do_streszczenia' });
   prawda(h.includes('&lt;b&gt;AI&lt;/b&gt;') && h.includes('<b>ważne</b>') && h.includes('gemini-3.5-flash-lite'), h);
   prawda(!h.includes('Stare'), 'zostało stare streszczenie');
+  prawda(h.includes('<details class="streszczenie krotkie"><summary>') && !/<details[^>]* open/.test(h), 'streszczenie ma być zwinięte (rozwijane kliknięciem)');
   localStorage.removeItem(Streszczenia.kluczPamieci());
 });
 test('streszczenia: do ręcznego – widać powód; brak streszczenia przy innym statusie – nic', () => {

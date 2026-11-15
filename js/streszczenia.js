@@ -125,8 +125,9 @@ const Streszczenia = {
     const esc = this.esc;
     const opis = r => `${esc(r.model || 'AI')}, ${esc(this.data(r.data))}`;
     const czesci = [];
-    if (s && s.krotkie) czesci.push(`<div class="streszczenie"><div class="naglowek">Streszczenie <span>(${opis(s.krotkie)})</span></div><p>${this.naHtml(s.krotkie.tekst)}</p></div>`);
-    if (s && s.szczegolowe) czesci.push(`<details class="streszczenie szczegolowe"${w.status === 'szczegolowo' ? ' open' : ''}><summary>Szczegółowe streszczenie <span>(${opis(s.szczegolowe)})</span></summary><p>${this.naHtml(s.szczegolowe.tekst)}</p></details>`);
+    // Zwinięte – rozwija się kliknięciem w nagłówek (długi tekst na telefonie zasłaniałby listę).
+    if (s && s.krotkie) czesci.push(`<details class="streszczenie krotkie"><summary>Streszczenie <span>(${opis(s.krotkie)})</span></summary><p>${this.naHtml(s.krotkie.tekst)}</p></details>`);
+    if (s && s.szczegolowe) czesci.push(`<details class="streszczenie szczegolowe"><summary>Szczegółowe streszczenie <span>(${opis(s.szczegolowe)})</span></summary><p>${this.naHtml(s.szczegolowe.tekst)}</p></details>`);
     const rodzaj = w.status === 'szczegolowo' ? 'szczegolowe' : w.status === 'do_streszczenia' ? 'krotkie' : null;
     if (rodzaj && !(s && s[rodzaj])) {
       if (s && s.doRecznego && s.doRecznego[rodzaj]) czesci.push(`<p class="streszczenie-stan">✋ Do ręcznego streszczenia: ${esc(s.doRecznego[rodzaj])}</p>`);
