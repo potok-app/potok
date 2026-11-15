@@ -19,10 +19,12 @@ const SKRYPT_GOOGLE = `/* Potok – pośrednik między aplikacją a Twoim Google
    przy USTAWIENIA_DOMYSLNE. Klucz Gemini NIE jest w kodzie.
    Wersja 5: streszczenie na żądanie – przycisk „Streść teraz” w aplikacji
    (akcja „streszczTeraz”). Harmonogram co godzinę działa dalej; wyłącza go
-   funkcja zatrzymajHarmonogram. */
+   funkcja zatrzymajHarmonogram.
+   Wersja 6: przy przeciążeniu Gemini (kod 503) ponowna próba, potem modele
+   zapasowe (MODELE_ZAPASOWE) – każdy model ma u Google osobny limit. */
 
 const KLUCZ = 'WSTAW_KLUCZ';   // aplikacja wstawia tu Twój tajny klucz
-const WERSJA_SKRYPTU = 5;
+const WERSJA_SKRYPTU = 6;
 
 /** Zapytanie z aplikacji: { klucz, akcja: 'pobierz' | 'zapisz' | 'opis' | 'wersja' | 'streszczenia' | 'streszczTeraz', tresc?, url?, od?, id?, rodzaj? } */
 function doPost(e) {
@@ -100,6 +102,7 @@ function sprawdzTytuly() {
      SILNIK             gemini (domyślnie) | ollama | wylaczony
      MODEL_KROTKI       model do krótkich streszczeń
      MODEL_SZCZEGOLOWY  model do szczegółowych streszczeń
+     MODELE_ZAPASOWE    modele po przecinku, gdy główny jest przeciążony lub bez limitu
      OLLAMA_ADRES       np. https://moj-tunel.example (tylko dla SILNIK=ollama)
      OLLAMA_MODEL       np. SpeakLeash/bielik-4.5b-v3.0-instruct:Q8_0
      NA_RAZ             ile wpisów streszczać w jednym uruchomieniu (co godzinę)
@@ -111,6 +114,9 @@ const USTAWIENIA_DOMYSLNE = {
   // Lepszy „Flash” daje za darmo tylko ok. 20 zapytań dziennie.
   MODEL_KROTKI: 'gemini-3.5-flash-lite',
   MODEL_SZCZEGOLOWY: 'gemini-3.5-flash-lite',
+  // Gdy model jest przeciążony (kod 503) albo wyczerpał dzienny limit (429),
+  // skrypt próbuje kolejnych z tej listy (po przecinku).
+  MODELE_ZAPASOWE: 'gemini-3.8-flash,gemini-2.5-flash',
   OLLAMA_ADRES: '',
   OLLAMA_MODEL: 'SpeakLeash/bielik-4.5b-v3.0-instruct:Q8_0',
   NA_RAZ: '6',
@@ -227,29 +233,43 @@ function zapytajSilnik(rodzaj, material) {
   if (silnik === 'gemini') {
     const klucz = ustawienie('GEMINI_KLUCZ');
     if (!klucz) throw bladUstawien('brak GEMINI_KLUCZ we Właściwościach skryptu');
-    const model = ustawienie(rodzaj === 'krotkie' ? 'MODEL_KROTKI' : 'MODEL_SZCZEGOLOWY');
+    // Najpierw model z ustawień, potem zapasowe (każdy model ma osobny limit u Google).
+    const glowny = ustawienie(rodzaj === 'krotkie' ? 'MODEL_KROTKI' : 'MODEL_SZCZEGOLOWY');
+    const modele = [glowny].concat(ustawienie('MODELE_ZAPASOWE').split(',').map(m => m.trim()))
+      .filter((m, i, t) => m && t.indexOf(m) === i);
     const czesci = material.film
       // Film: Gemini sam „ogląda” publiczny film z YouTube. Rzadkie klatki
       // (co 10 s) i niska rozdzielczość – mniej tokenów, mieści się w limicie.
       ? [{ fileData: { fileUri: material.film }, videoMetadata: { fps: 0.1 } }, { text: polecenie }]
       : [{ text: polecenie + '\\n\\n---\\n' + material.tekst }];
-    const odp = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
-      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-      headers: { 'x-goog-api-key': klucz },
-      payload: JSON.stringify({ contents: [{ parts: czesci }], generationConfig: { mediaResolution: 'MEDIA_RESOLUTION_LOW' } }),
-    });
-    const kod = odp.getResponseCode();
-    let o = {};
-    try { o = JSON.parse(odp.getContentText()); } catch (x) { /* nie JSON */ }
-    if (kod !== 200) {
-      const e = new Error('Gemini: kod ' + kod + (o.error && o.error.message ? ' – ' + o.error.message.slice(0, 200) : ''));
-      e.limit = kod === 429;
-      throw e;
+    let ostatni;
+    for (const model of modele) {
+      // Przeciążenie (503/500) zwykle mija po chwili – jedna ponowna próba tym samym modelem.
+      for (let proba = 0; proba < 2; proba++) {
+        if (proba) Utilities.sleep(4000);
+        const odp = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
+          method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+          headers: { 'x-goog-api-key': klucz },
+          payload: JSON.stringify({ contents: [{ parts: czesci }], generationConfig: { mediaResolution: 'MEDIA_RESOLUTION_LOW' } }),
+        });
+        const kod = odp.getResponseCode();
+        let o = {};
+        try { o = JSON.parse(odp.getContentText()); } catch (x) { /* nie JSON */ }
+        if (kod === 200) {
+          const c = (o.candidates || [])[0];
+          const tekst = c && c.content && (c.content.parts || []).map(p => p.text || '').join('').trim();
+          if (!tekst) throw new Error('Gemini: pusta odpowiedź' + (c && c.finishReason ? ' (' + c.finishReason + ')' : ''));
+          return { tekst, model };
+        }
+        ostatni = new Error('Gemini (' + model + '): kod ' + kod + (o.error && o.error.message ? ' – ' + o.error.message.slice(0, 200) : ''));
+        // Limit, przeciążenie, nieznany model – to nie wina wpisu: nie liczymy próby.
+        ostatni.limit = [429, 500, 503, 404].includes(kod);
+        if (kod === 500 || kod === 503) continue;   // ponów ten sam model
+        break;                                      // 429 / 404 – od razu następny model
+      }
+      if (!ostatni.limit) throw ostatni;            // np. 400 – zły materiał, inny model nie pomoże
     }
-    const c = (o.candidates || [])[0];
-    const tekst = c && c.content && (c.content.parts || []).map(p => p.text || '').join('').trim();
-    if (!tekst) throw new Error('Gemini: pusta odpowiedź' + (c && c.finishReason ? ' (' + c.finishReason + ')' : ''));
-    return { tekst, model };
+    throw ostatni;
   }
   if (silnik === 'ollama') {
     // Ollama na Twoim komputerze – skrypt Google musi mieć do niej adres z internetu
