@@ -1,5 +1,9 @@
 # Potok – postęp prac i decyzje
 
+## 15.11.2026 – streszczenie w stylu NotebookLM
+- Dariusz: „3–5 zdań to za mało, niech robi mniej więcej tak jak NotebookLM”. Zwykłe streszczenie (lista „Streścić”) ma teraz 2–3 akapity (ok. 200–300 słów: o czym, główna teza, uzasadnienie, wnioski) z pogrubionymi kluczowymi pojęciami, potem „Kluczowe punkty:” (4–6 punktów) i „Dla kogo:”. Zmienione tylko polecenie (`POLECENIE.krotkie` w Kod.gs). Szczegółowe bez zmian.
+- Limit zapytań się nie zmienia (jedno zapytanie na wpis), dłuższa odpowiedź mieści się w darmowym limicie tokenów.
+
 ## 14.11.2026 – streszczenia AI: skrypt Google wersja 4 (wersja aplikacji 22)
 - **Po co:** zamiast ręcznie wysyłać listę „Streścić” do NotebookLM, streszczenia robią się same. Całość planu jest w projekcie LokalnyLLM (`D:\ClaudeCode\LokalnyLLM\POSTEP.md`).
 - **Skrypt Google v4** (`skrypt-google/Kod.gs`): funkcja `streszczajCoGodzine` uruchamiana co godzinę przez harmonogram Google (działa, gdy komputer jest wyłączony). Bierze wpisy „Streścić” (krótkie streszczenie, 3–5 zdań) i „Streścić szczegółowo” (struktura, tezy, argumenty z przykładami, co nowe, słabe punkty). Wynik zapisuje w `Potok/Streszczenia/<id wpisu>.json`. **Potok.json tylko czyta**, więc nie ma ryzyka nadpisania wpisów.
