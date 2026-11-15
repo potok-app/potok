@@ -112,8 +112,12 @@ const MAKS_ZNAKOW = 200000;     // ok. 50 tys. słów – więcej tekstu nie wys
 const MIN_ZNAKOW = 600;         // mniej tekstu = raczej logowanie albo paywall
 
 const POLECENIE = {
-  krotkie: 'Streść poniższy materiał po polsku (nawet jeśli jest w innym języku) w 3–5 zdaniach: ' +
-    'o czym to jest, jaka jest główna teza, dla kogo to jest i co wnosi nowego. ' +
+  // Styl jak przegląd źródła w NotebookLM (decyzja z 15.11.2026: 3–5 zdań to za mało).
+  krotkie: 'Napisz po polsku (nawet jeśli materiał jest w innym języku) streszczenie w stylu NotebookLM. ' +
+    'Najpierw 2–3 akapity, łącznie ok. 200–300 słów: o czym to jest, jaka jest główna teza lub cel autora, ' +
+    'jak autor ją uzasadnia i do jakich wniosków dochodzi. Najważniejsze pojęcia, nazwy i liczby wyróżnij **pogrubieniem**. ' +
+    'Potem wiersz „Kluczowe punkty:” i 4–6 krótkich punktów zaczynających się od „- ”. ' +
+    'Na końcu jedno zdanie zaczynające się od „Dla kogo:”. ' +
     'Bez wstępów typu „Oto streszczenie”. Jeśli materiał jest pusty, jest stroną logowania ' +
     'albo nie da się go streścić, odpowiedz dokładnie: BRAK TREŚCI',
   szczegolowe: 'Przygotuj szczegółowe streszczenie poniższego materiału po polsku (nawet jeśli jest ' +

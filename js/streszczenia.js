@@ -1,7 +1,7 @@
 /* streszczenia.js – streszczenia AI przy wpisach (od wersji 4 skryptu Google).
 
    Streszczenia robi sam skrypt Google co godzinę (harmonogram), bez udziału
-   aplikacji: wpisy „Streścić” dostają krótkie streszczenie (3–5 zdań),
+   aplikacji: wpisy „Streścić” dostają streszczenie w stylu NotebookLM (2–3 akapity + kluczowe punkty),
    a „Streścić szczegółowo” – szczegółowe. Skrypt zapisuje je w folderze
    „Potok/Streszczenia” na Twoim Drive (jeden plik na wpis), a Potok.json
    zostaje nietknięty.
