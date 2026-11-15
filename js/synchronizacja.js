@@ -16,7 +16,7 @@
      („do wysłania”) – nic nie trzeba pamiętać.
 
    Dwa sposoby połączenia z Drive:
-   A) SKRYPT GOOGLE (używany przez Dariusza): mały skrypt na script.google.com
+   A) SKRYPT GOOGLE (używany na co dzień): mały skrypt na script.google.com
       (plik skrypt-google/Kod.gs) działa na Twoim koncie i czyta/zapisuje
       Potok.json. Aplikacja zna jego adres i tajny klucz („kod połączenia”).
       Bez Google Cloud, bez logowania co godzinę.
