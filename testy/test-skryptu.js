@@ -125,13 +125,13 @@ assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'opis', url: 'https:/
 const strony = g.strony; g.strony = new Proxy({}, { get: () => { throw new Error('Nie masz uprawnień do wywołania UrlFetchApp.fetch'); } });
 assert.match(zapytaj(g, { klucz: 'tajny', akcja: 'opis', url: 'https://danluu.com/ambitious' }).problem, /uprawnień/);
 g.strony = strony;
-assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'wersja' }), { wersja: 5 });
+assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'wersja' }), { wersja: 6 });
 assert.deepStrictEqual(zapytaj(g, { klucz: 'zly', akcja: 'wersja' }), { blad: 'zły klucz' });
 g.strony['https://www.youtube.com/oembed?format=json&url=' + encodeURIComponent('https://www.youtube.com/watch?v=jNQXAC9IVRw')] = { tekst: JSON.stringify({ title: 'Me at the zoo', author_name: 'jawed' }) };
 assert.strictEqual(g.sprawdzTytuly().tytul, 'Me at the zoo');
 assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'opis', url: 'file:///C:/x' }), { blad: 'zły adres' });
 assert.deepStrictEqual(zapytaj(g, { klucz: 'zly', akcja: 'opis', url: yt }), { blad: 'zły klucz' });
-assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 5);
+assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 6);
 
 // 4. Streszczenia (wersja 4).
 {
@@ -216,15 +216,41 @@ assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 5);
   zapytaj(g2, { klucz: 'tajny', akcja: 'zapisz', tresc: JSON.stringify({ wersja: 1, wpisy: [wpisy[0], { ...wpisy[0], id: 'b2' }] }) });
   g2.gemini = () => ({ kod: 429, odpowiedz: { error: { message: 'Quota exceeded' } } });
   const w429 = g2.streszczajCoGodzine();
-  assert.strictEqual(g2.zapytaniaGemini.length, 1, 'po 429 nie pytamy dalej w tym uruchomieniu');
-  assert.strictEqual(g2.zapytaniaGemini[0].model, 'inny-model', 'model z Właściwości skryptu');
+  assert.deepStrictEqual(g2.zapytaniaGemini.map(z => z.model), ['inny-model', 'gemini-3.8-flash', 'gemini-2.5-flash'],
+    'po 429 każdy model z listy raz (osobne limity), potem przerwa w tym uruchomieniu');
   assert.strictEqual(w429.czeka, 2);
   const s429 = JSON.parse(g2.foldery[0].podfoldery[0].pliki[0].tresc);
   assert.match(s429.problem, /429/);
   assert.strictEqual(s429.proby, undefined);
-  g2.gemini = () => ({ kod: 500, odpowiedz: {} });
+  // Błąd materiału (400): bez modeli zapasowych, liczony do 3 prób, potem wpis czeka na ręczne.
+  const ile400 = g2.zapytaniaGemini.length;
+  g2.gemini = () => ({ kod: 400, odpowiedz: { error: { message: 'Bad request' } } });
   for (let i = 0; i < 4; i++) g2.streszczajCoGodzine();
-  assert.strictEqual(g2.zapytaniaGemini.length, 1 + 2 * 3, 'po 3 nieudanych próbach wpis czeka na ręczne');
+  assert.strictEqual(g2.zapytaniaGemini.length - ile400, 2 * 3, 'po 3 nieudanych próbach wpis czeka na ręczne');
+
+  // Przeciążenie (503): ponowna próba tym samym modelem, potem model zapasowy – i sukces.
+  const g7 = nowyGoogle();
+  g7.wlasciwosci.GEMINI_KLUCZ = 'k';
+  g7.strony['https://example.com/dlugi'] = { tekst: dlugi };
+  zapytaj(g7, { klucz: 'tajny', akcja: 'zapisz', tresc: JSON.stringify({ wersja: 1, wpisy: [wpisy[0]] }) });
+  g7.gemini = z => z.model === 'gemini-3.5-flash-lite'
+    ? { kod: 503, odpowiedz: { error: { message: 'This model is currently experiencing high demand.' } } }
+    : { odpowiedz: { candidates: [{ content: { parts: [{ text: 'Z zapasowego.' }] } }] } };
+  g7.streszczajCoGodzine();
+  assert.deepStrictEqual(g7.zapytaniaGemini.map(z => z.model), ['gemini-3.5-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.8-flash']);
+  const s7 = JSON.parse(g7.foldery[0].podfoldery[0].pliki[0].tresc);
+  assert.strictEqual(s7.krotkie.tekst, 'Z zapasowego.');
+  assert.strictEqual(s7.krotkie.model, 'gemini-3.8-flash', 'zapisany model, który naprawdę streścił');
+  // Wszystkie przeciążone: problem zapisany, próba nie liczona; własna lista zapasowych z ustawień.
+  const g8 = nowyGoogle();
+  g8.wlasciwosci.GEMINI_KLUCZ = 'k';
+  g8.wlasciwosci.MODELE_ZAPASOWE = 'moj-zapasowy';
+  g8.gemini = () => ({ kod: 503, odpowiedz: { error: { message: 'high demand' } } });
+  g8.strony['https://example.com/dlugi'] = { tekst: dlugi };
+  const s8 = zapytaj(g8, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'e1', url: 'https://example.com/dlugi' }).streszczenie;
+  assert.deepStrictEqual(g8.zapytaniaGemini.map(z => z.model), ['gemini-3.5-flash-lite', 'gemini-3.5-flash-lite', 'moj-zapasowy', 'moj-zapasowy']);
+  assert.match(s8.problem, /503/);
+  assert.strictEqual(s8.proby, undefined);
 
   // Silnik jako ustawienie: wyłączony – nic się nie dzieje; Ollama – inny adres, bez filmów.
   const g3 = nowyGoogle();

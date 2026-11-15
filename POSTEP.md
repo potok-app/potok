@@ -1,5 +1,12 @@
 # Potok – postęp prac i decyzje
 
+## 15.11.2026 (3) – przeciążenie Gemini: ponowna próba i modele zapasowe (skrypt v6, aplikacja v24)
+- Objaw: „Streść teraz” → „Gemini: kod 503 – This model is currently experiencing high demand”. To chwilowe przeciążenie serwerów Google (darmowy Flash-Lite), nie błąd po naszej stronie.
+- Skrypt v6: przy 503/500 czeka 4 s i ponawia ten sam model; potem próbuje modeli zapasowych z ustawienia `MODELE_ZAPASOWE` (domyślnie `gemini-3.8-flash,gemini-2.5-flash`). Przy 429 (wyczerpany limit) i 404 (nieznany model) od razu następny model – każdy model ma u Google osobny limit. Przy streszczeniu zapisuje się model, który naprawdę streścił.
+- Przeciążenie, limit i nieznany model nie zużywają 3 prób wpisu (to nie wina wpisu). Błąd 400 (zły materiał) dalej liczy się jako próba i nie przechodzi na inne modele.
+- Aplikacja przy skrypcie starszym niż 6 pokazuje ramkę aktualizacji (wystarczy nowy kod + nowa wersja wdrożenia).
+- Testy: 503 → ponowienie → model zapasowy → sukces; wszystkie przeciążone → problem bez zużycia prób; 429 → każdy model raz; 400 → 3 próby.
+
 ## 15.11.2026 (2) – „Streść teraz”, start na „Dodaj”, checkbox „Streścić” (skrypt v5, aplikacja v23)
 - **„✨ Streść teraz”** przy wpisie (skrzynka, „Streścić”, „Streścić szczegółowo”; tylko linki www bez streszczenia). Prośba: wolę zamawiać streszczenie z aplikacji, niż czekać na harmonogram. Skrypt Google robi je od razu (zwykle 10–60 s) i zwraca; aplikacja pokazuje wynik albo powód, czemu się nie da. Ponawia też wpisy oznaczone wcześniej „do ręcznego”.
   - Skrypt v5: nowa akcja `streszczTeraz` { id, url, tytul, rodzaj }. Harmonogram co godzinę działa dalej (nic nie kosztuje poza limitem). Wyłącza go funkcja `zatrzymajHarmonogram` – dawna `wylaczStreszczenia`, zmieniona, bo myliła się z `wlaczStreszczenia` (wybrana przez pomyłkę 15.11).

@@ -231,14 +231,14 @@ async function scenariusz(przegladarka, tryb) {
     await komp.s.waitForSelector('#skrypt-aktualizacja', { state: 'visible', timeout: 10000 });
     await komp.s.click('#pokaz-nowy-skrypt');
     const nowy = await komp.s.inputValue('#nowy-skrypt-tekst');
-    assert(nowy.includes("const KLUCZ = 'TAJNY-KLUCZ'") && nowy.includes('WERSJA_SKRYPTU = 5') && nowy.includes('function sprawdzTytuly') && nowy.includes('function wlaczStreszczenia'), 'nowy skrypt bez klucza lub wersji');
+    assert(nowy.includes("const KLUCZ = 'TAJNY-KLUCZ'") && nowy.includes('WERSJA_SKRYPTU = 6') && nowy.includes('function sprawdzTytuly') && nowy.includes('function wlaczStreszczenia'), 'nowy skrypt bez klucza lub wersji');
     // Skrypt w wersji 3 (tytuły działają, streszczeń brak) – ramka dalej prosi o wersję 4.
     drive.wersjaSkryptu = 3;
     await komp.s.click('#sync-teraz');
     await komp.s.waitForFunction(() => Magazyn.wczytaj().find(w => w.url === 'https://example.com/z-komputera').autor === 'Autor testowy', null, { timeout: 15000 });
     await komp.s.waitForFunction(() => Streszczenia.skryptStary(), null, { timeout: 10000 });
     assert(await komp.s.isVisible('#skrypt-aktualizacja'), 'przy skrypcie v3 brak prośby o wersję 4');
-    drive.wersjaSkryptu = 5;   // „wdrożono nową wersję”
+    drive.wersjaSkryptu = 6;   // „wdrożono nową wersję”
     await komp.s.click('#sync-teraz');
     await komp.s.waitForFunction(() => Magazyn.wczytaj().find(w => w.url === 'https://example.com/z-komputera').autor === 'Autor testowy', null, { timeout: 15000 });
     // Na komputerze: link z YouTube + dopisane „Streścić” → tytuł i autor też się pobierają, podpowiedź zostaje.

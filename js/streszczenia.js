@@ -50,8 +50,8 @@ const Streszczenia = {
         try { wersja = (await Synchronizacja.doSkryptu({ akcja: 'wersja' })).wersja || 0; }
         catch (e) { if (!/nieznana akcja/.test(e.message)) return; }   // brak sieci – spróbujemy później
         this.wersjaSprawdzona = true;
-        // Wersja 5 = „Streść teraz” z aplikacji; starsza → ramka z prośbą o aktualizację.
-        if (wersja < 5) localStorage.setItem(Magazyn.klucz + '.skryptBezStreszczen', '1');
+        // Wersja 5 = „Streść teraz”, 6 = modele zapasowe przy przeciążeniu Gemini; starsza → ramka.
+        if (wersja < 6) localStorage.setItem(Magazyn.klucz + '.skryptBezStreszczen', '1');
         else localStorage.removeItem(Magazyn.klucz + '.skryptBezStreszczen');
       }
       if (this.skryptStary()) return;
@@ -87,7 +87,7 @@ const Streszczenia = {
 
   /** Krótko do „Pliki”: ile gotowych, ile czeka, ile do ręcznego. */
   podsumowanie(wpisy) {
-    if (this.skryptStary()) return 'Streszczenia: potrzebny skrypt Google w wersji 5 (ramka niżej).';
+    if (this.skryptStary()) return 'Streszczenia: potrzebny skrypt Google w wersji 6 (ramka niżej).';
     const mapa = this.pamiec().mapa;
     const doZrobienia = wpisy.filter(w => (w.status === 'do_streszczenia' || w.status === 'szczegolowo') && w.url && /^https?:/i.test(w.url));
     const rodzaj = w => (w.status === 'szczegolowo' ? 'szczegolowe' : 'krotkie');
