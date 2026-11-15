@@ -376,6 +376,22 @@ async function streszczTeraz(przycisk, tekst) {
   pokazWidok(aktualnyWidok);
 }
 
+// Gotowe streszczenie (np. z NotebookLM) zapisywane przy wpisie bez AI.
+async function zapiszGotowe(przycisk, tekst) {
+  const w = Magazyn.wczytaj().find(x => x.id === przycisk.dataset.gotowe);
+  if (!w) return;
+  if (!navigator.onLine) return komunikat('Bez internetu – spróbuj, gdy wróci sieć.');
+  przycisk.disabled = true;
+  przycisk.textContent = '⏳ Zapisuję…';
+  try {
+    await Streszczenia.zapiszGotowe(w, przycisk.dataset.rodzaj, tekst);
+    komunikat('Streszczenie zapisane przy wpisie (na Twoim Drive).');
+  } catch (e) {
+    komunikat('Nie udało się zapisać: ' + e.message);
+  }
+  pokazWidok(aktualnyWidok);
+}
+
 /* ------------------------- Start ---------------------------------- */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -392,12 +408,21 @@ document.addEventListener('DOMContentLoaded', () => {
       streszczTeraz(b, pole ? pole.value : undefined);
       return;
     }
-    // „Wklej tekst” – pole na transkrypcję / artykuł pod przyciskami.
+    // „Zapisz jako streszczenie” – wklejone gotowe streszczenie (np. z NotebookLM), bez AI.
+    const g = e.target.closest('[data-gotowe]');
+    if (g && !g.disabled) {
+      const tekst = g.parentElement.querySelector('textarea').value.trim();
+      if (tekst.length < 50) return komunikat('Wklej całe gotowe streszczenie (np. z NotebookLM).');
+      zapiszGotowe(g, tekst);
+      return;
+    }
+    // „Wklej tekst” – pole na transkrypcję / artykuł / gotowe streszczenie pod przyciskami.
     const wk = e.target.closest('[data-wklej]');
     if (wk && !wk.parentElement.nextElementSibling?.classList.contains('wklej-tekst')) {
       wk.parentElement.insertAdjacentHTML('afterend', `<div class="wklej-tekst">
-        <textarea rows="6" placeholder="Wklej tutaj transkrypcję filmu (np. z Pobieracza YT) albo tekst artykułu"></textarea>
-        <button data-streszcz="${esc(wk.dataset.wklej)}" data-rodzaj="${esc(wk.dataset.rodzaj)}" data-z-tekstu="1">✨ Streść ten tekst</button></div>`);
+        <textarea rows="6" placeholder="Wklej transkrypcję filmu (np. z Pobieracza YT) albo tekst artykułu – albo gotowe streszczenie, np. z NotebookLM"></textarea>
+        <button data-streszcz="${esc(wk.dataset.wklej)}" data-rodzaj="${esc(wk.dataset.rodzaj)}" data-z-tekstu="1">✨ Streść ten tekst</button>
+        <button data-gotowe="${esc(wk.dataset.wklej)}" data-rodzaj="${esc(wk.dataset.rodzaj)}">💾 Zapisz jako streszczenie</button></div>`);
       wk.parentElement.nextElementSibling.querySelector('textarea').focus();
     }
   });

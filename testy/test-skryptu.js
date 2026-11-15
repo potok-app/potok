@@ -348,6 +348,16 @@ assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 8);
   assert.strictEqual(zapytaj(g11, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'h5', url: 'https://www.facebook.com/reel/9', tekst: transkrypcja }).streszczenie.krotkie.tekst, 'Film.');
   assert.deepStrictEqual(zapytaj(g11, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'h6', url: 'https://example.com/x', tekst: 'za mało' }), { blad: 'za krótki tekst – wklej całą transkrypcję albo artykuł' });
   assert.strictEqual(Object.keys(g11.strony).length, ileStron);
+  // „Zapisz jako streszczenie”: gotowy tekst (np. z NotebookLM) zapisany bez pytania AI.
+  const ileGemini = g11.zapytaniaGemini.length;
+  const gotowe = 'Streszczenie z NotebookLM. '.repeat(5);
+  const s14 = zapytaj(g11, { klucz: 'tajny', akcja: 'zapiszGotowe', id: 'h1', rodzaj: 'szczegolowe', tekst: gotowe }).streszczenie;
+  assert.strictEqual(s14.szczegolowe.tekst, gotowe.trim());
+  assert.strictEqual(s14.szczegolowe.model, 'wklejone');
+  assert.strictEqual(s14.krotkie.tekst, 'Film.', 'wcześniejsze streszczenie zostaje');
+  assert.strictEqual(g11.zapytaniaGemini.length, ileGemini, 'bez AI');
+  assert.ok(zapytaj(g11, { klucz: 'tajny', akcja: 'streszczenia' }).streszczenia.some(x => x.id === 'h1' && x.szczegolowe), 'zapisane na Drive');
+  assert.deepStrictEqual(zapytaj(g11, { klucz: 'tajny', akcja: 'zapiszGotowe', id: 'h1', tekst: 'krótko' }), { blad: 'za krótki tekst – wklej całe streszczenie' });
 
   // Błędy wszystkich modeli widać razem (np. przeciążony główny + wycofany zapasowy).
   const g12 = nowyGoogle();

@@ -84,6 +84,14 @@ const Streszczenia = {
     return streszczenie;
   },
 
+  /** „Zapisz jako streszczenie”: gotowy tekst (np. z NotebookLM) trafia przy wpisie na Drive bez AI. */
+  async zapiszGotowe(w, rodzaj, tekst) {
+    const odp = await Synchronizacja.doSkryptu({ akcja: 'zapiszGotowe', id: w.id, rodzaj, tekst });
+    if (odp.blad) throw new Error(odp.blad);
+    this.zapamietaj([odp.streszczenie]);
+    return odp.streszczenie;
+  },
+
   /** Które streszczenie można zamówić dla wpisu (null = żadne). */
   doZamowienia(w) {
     if (this.skryptStary() || !Synchronizacja.skrypt() || !w.url || !/^https?:/i.test(w.url)) return null;

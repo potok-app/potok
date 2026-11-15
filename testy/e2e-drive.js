@@ -54,6 +54,13 @@ async function obsluzSkrypt(route) {
     drive.streszczenia.push(st);
     return odp({ streszczenie: st });
   }
+  // „Zapisz jako streszczenie” (gotowe, np. z NotebookLM) – od wersji 8.
+  if (dane.akcja === 'zapiszGotowe' && drive.wersjaSkryptu >= 8) {
+    const st = { id: dane.id, zmieniono: new Date().toISOString() };
+    st[dane.rodzaj] = { tekst: dane.tekst, model: 'wklejone', data: new Date().toISOString() };
+    drive.streszczenia.push(st);
+    return odp({ streszczenie: st });
+  }
   return odp({ blad: 'nieznana akcja' });
 }
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': '*' };
@@ -294,6 +301,16 @@ async function scenariusz(przegladarka, tryb) {
     await komp.s.waitForSelector('#lista details.szczegolowe', { timeout: 15000 });
     assert.match(await komp.s.textContent('#lista details.szczegolowe'), /Na żądanie: /);
     assert.strictEqual(await komp.s.locator('#lista [data-streszcz]').count(), 0, 'po streszczeniu przycisk znika');
+    // „Wklej tekst” → „Zapisz jako streszczenie”: gotowe streszczenie z NotebookLM zapisane bez AI.
+    const w11 = await komp.s.evaluate(() => Magazyn.wczytaj().find(x => (x.url || '').startsWith('http') && !(x.url || '').includes('komp123')));
+    await komp.s.evaluate(id => Magazyn.zmienStatus(id, 'szczegolowo'), w11.id);
+    await komp.s.click('#statusy [data-lista=szczegolowo]');
+    await komp.s.click(`#lista [data-wklej="${w11.id}"]`);
+    await komp.s.fill('#lista .wklej-tekst textarea', 'Streszczenie z NotebookLM: najważniejsze wnioski z rozmowy, akapit pierwszy.');
+    await komp.s.click(`#lista [data-gotowe="${w11.id}"]`);
+    await komp.s.waitForFunction(id => Streszczenia.dla(id)?.szczegolowe, w11.id, { timeout: 15000 });
+    assert.match(await komp.s.textContent('#lista'), /Szczegółowe streszczenie \(wklejone,.*Streszczenie z NotebookLM/s);
+    await komp.s.evaluate(id => Magazyn.zmienStatus(id, 'skrzynka'), w11.id);
     await komp.s.click('nav [data-widok=eksport]');
     assert.match(await komp.s.textContent('#stan-streszczen-ai'), /Streszczenia AI: gotowe 1 · do ręcznego 0 · czekają 0/);
     await czekajWysylke(komp.s);

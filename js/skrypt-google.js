@@ -33,7 +33,7 @@ const SKRYPT_GOOGLE = `/* Potok – pośrednik między aplikacją a Twoim Google
 const KLUCZ = 'WSTAW_KLUCZ';   // aplikacja wstawia tu Twój tajny klucz
 const WERSJA_SKRYPTU = 8;
 
-/** Zapytanie z aplikacji: { klucz, akcja: 'pobierz' | 'zapisz' | 'opis' | 'wersja' | 'streszczenia' | 'streszczTeraz', tresc?, url?, od?, id?, rodzaj? } */
+/** Zapytanie z aplikacji: { klucz, akcja: 'pobierz' | 'zapisz' | 'opis' | 'wersja' | 'streszczenia' | 'streszczTeraz' | 'zapiszGotowe', tresc?, url?, od?, id?, rodzaj? } */
 function doPost(e) {
   let dane;
   try { dane = JSON.parse(e.postData.contents); } catch (x) { return wynik({ blad: 'złe dane' }); }
@@ -42,6 +42,7 @@ function doPost(e) {
   if (dane.akcja === 'opis') return wynik(opisStrony(dane.url));
   if (dane.akcja === 'streszczenia') return wynik(odczytajStreszczenia(dane.od));
   if (dane.akcja === 'streszczTeraz') return wynik(streszczTeraz(dane));
+  if (dane.akcja === 'zapiszGotowe') return wynik(zapiszGotowe(dane));
 
   // Blokada: dwa urządzenia naraz nie nadpiszą sobie pliku w połowie zapisu.
   const blokada = LockService.getScriptLock();
@@ -404,6 +405,26 @@ function streszczTeraz(dane) {
     // Limit Gemini, brak klucza albo wyłączony silnik – problem jest już zapisany w s.
     s.problem = String(x && x.message || x);
   }
+  return { streszczenie: s };
+}
+
+/**
+ * „Zapisz jako streszczenie”: gotowe streszczenie wklejone z aplikacji
+ * (np. z NotebookLM) zapisuje się przy wpisie bez pytania AI – notatnik
+ * w NotebookLM można potem usunąć.
+ */
+function zapiszGotowe(dane) {
+  const rodzaj = dane.rodzaj === 'szczegolowe' ? 'szczegolowe' : 'krotkie';
+  const tekst = String(dane.tekst || '').trim();
+  if (!dane.id) return { blad: 'brak wpisu' };
+  if (tekst.length < 50) return { blad: 'za krótki tekst – wklej całe streszczenie' };
+  const folder = folderStreszczen();
+  const s = wczytajStreszczenie(folder, dane.id) || { id: dane.id };
+  s[rodzaj] = { tekst: tekst.slice(0, MAKS_WKLEJONEGO), model: 'wklejone', data: new Date().toISOString() };
+  if (s.doRecznego) delete s.doRecznego[rodzaj];
+  if (s.proby) delete s.proby[rodzaj];
+  delete s.problem;
+  zapiszStreszczenie(folder, s);
   return { streszczenie: s };
 }
 
