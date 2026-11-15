@@ -14,7 +14,7 @@
 <body>
   <header>
     <div class="naglowek-gora">
-      <h1>Potok <small id="znak-urzadzenia"></small></h1>
+      <h1 title="Dodaj">Potok <small id="znak-urzadzenia"></small></h1>
       <!-- Stan synchronizacji z Google Drive; kliknięcie = synchronizuj / zaloguj -->
       <button id="stan-sync" class="stan-sync" hidden></button>
     </div>
@@ -56,6 +56,7 @@
       <form id="form-dodaj" class="karta">
         <label>Link <input id="nowy-url" type="url" placeholder="https://… (można pominąć)" autocomplete="off"></label>
         <label>Opis (opcjonalnie) <input id="nowy-opis" type="text" placeholder="cokolwiek – decyzję podejmiesz później"></label>
+        <label class="zaznacz"><input id="dodaj-strescic" type="checkbox"> Streścić</label>
         <button type="submit">Dodaj do skrzynki</button>
         <p class="pomoc">Wszystko trafia do skrzynki. Co z tym zrobić, zdecydujesz w przeglądzie. Data dodania zapisze się sama.</p>
       </form>
@@ -120,7 +121,7 @@
           <p id="stan-streszczen-ai" class="pomoc"></p>
           <!-- Pokazywane, gdy skrypt Google jest starszy niż aplikacja (wersja < 4: bez streszczeń AI). -->
           <div id="skrypt-aktualizacja" class="ramka" hidden>
-            <p><b>Zaktualizuj skrypt Google do wersji 4</b>, żeby Potok sam robił streszczenia AI wpisów „Streścić” (co godzinę, także gdy komputer jest wyłączony) i pokazywał tytuły linków. Adres i klucz zostają te same. Ok. 10 minut, raz.</p>
+            <p><b>Zaktualizuj skrypt Google do wersji 5</b>, żeby Potok robił streszczenia AI: przyciskiem „Streść teraz” przy wpisie albo sam co godzinę (także gdy komputer jest wyłączony). Adres i klucz zostają te same. Jeśli masz już wersję 4 z kluczem Gemini, wystarczą kroki 1, 2, 5 i 6.</p>
             <ol class="kroki">
               <li><button id="pokaz-nowy-skrypt">Pokaż nowy skrypt</button>
                 <div id="nowy-skrypt-pole" hidden>
@@ -128,10 +129,10 @@
                   <button id="kopiuj-nowy-skrypt">Kopiuj skrypt</button>
                 </div></li>
               <li>Otwórz <a href="https://script.google.com/home" target="_blank" rel="noopener">script.google.com</a> i swój projekt ze skryptem Potoku. Zaznacz cały stary kod (Ctrl+A), wklej nowy, zapisz (Ctrl+S).</li>
-              <li><b>Klucz Gemini (darmowy):</b> otwórz <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> → <b>Create API key</b> i skopiuj klucz. W edytorze skryptu kliknij po lewej ⚙ <b>Ustawienia projektu</b> → na dole <b>Właściwości skryptu</b> → <b>Dodaj właściwość skryptu</b>: nazwa <code>GEMINI_KLUCZ</code>, wartość: wklejony klucz → <b>Zapisz</b>. Klucz zostaje tylko w Twoim projekcie, nie w kodzie.</li>
-              <li>Wróć do edytora (◇ <b>Edytor</b>). U góry, obok przycisku <b>Uruchom</b>, wybierz funkcję <b>wlaczStreszczenia</b> i kliknij <b>Uruchom</b>. Google poprosi o uprawnienia (albo w dzienniku pojawi się link „Kliknij tutaj, aby przyznać uprawnienia”): zaznacz <b>wszystkie</b> pola i <b>Zezwól</b>, potem uruchom jeszcze raz. W „Dzienniku wykonania” powinno być „Próbne streszczenie: …” i „Ustawiono harmonogram: co godzinę”.</li>
+              <li><b>Klucz Gemini (darmowy, tylko za pierwszym razem):</b> otwórz <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> → <b>Create API key</b> i skopiuj klucz. W edytorze skryptu kliknij po lewej ⚙ <b>Ustawienia projektu</b> → na dole <b>Właściwości skryptu</b> → <b>Dodaj właściwość skryptu</b>: nazwa <code>GEMINI_KLUCZ</code>, wartość: wklejony klucz → <b>Zapisz</b>. Klucz zostaje tylko w Twoim projekcie, nie w kodzie.</li>
+              <li><b>Tylko za pierwszym razem:</b> wróć do edytora (◇ <b>Edytor</b>). U góry, obok przycisku <b>Uruchom</b>, wybierz funkcję <b>wlaczStreszczenia</b> i kliknij <b>Uruchom</b>. Google poprosi o uprawnienia (albo w dzienniku pojawi się link „Kliknij tutaj, aby przyznać uprawnienia”): zaznacz <b>wszystkie</b> pola i <b>Zezwól</b>, potem uruchom jeszcze raz. W „Dzienniku wykonania” powinno być „Próbne streszczenie: …” i „Ustawiono harmonogram: co godzinę”.</li>
               <li><b>Wdróż → Zarządzaj wdrożeniami</b> → ✏️ (ołówek) → „Wersja”: <b>Nowa wersja</b> → <b>Wdróż</b>.</li>
-              <li>Wróć tutaj i kliknij <b>Synchronizuj teraz</b>. Ta ramka zniknie. Pierwsze streszczenia pojawią się przy wpisach w ciągu godziny (lista „Streścić”).</li>
+              <li>Wróć tutaj i kliknij <b>Synchronizuj teraz</b>. Ta ramka zniknie. Przy wpisach pojawi się przycisk „✨ Streść teraz”.</li>
             </ol>
             <p class="pomoc">Silnik i model to ustawienia, nie kod: we Właściwościach skryptu możesz dodać <code>SILNIK</code> (gemini / ollama / wylaczony), <code>MODEL_KROTKI</code>, <code>MODEL_SZCZEGOLOWY</code>. Opis jest na początku części „STRESZCZENIA” w skrypcie.</p>
           </div>

@@ -16,12 +16,15 @@ const SKRYPT_GOOGLE = `/* Potok – pośrednik między aplikacją a Twoim Google
    prosi silnik AI o streszczenie i zapisuje je w folderze „Potok/Streszczenia”
    (jeden plik na wpis). Pliku Potok.json NIE zmienia – tylko go czyta.
    Ustawienia (Ustawienia projektu → Właściwości skryptu), opis niżej
-   przy USTAWIENIA_DOMYSLNE. Klucz Gemini NIE jest w kodzie. */
+   przy USTAWIENIA_DOMYSLNE. Klucz Gemini NIE jest w kodzie.
+   Wersja 5: streszczenie na żądanie – przycisk „Streść teraz” w aplikacji
+   (akcja „streszczTeraz”). Harmonogram co godzinę działa dalej; wyłącza go
+   funkcja zatrzymajHarmonogram. */
 
 const KLUCZ = 'WSTAW_KLUCZ';   // aplikacja wstawia tu Twój tajny klucz
-const WERSJA_SKRYPTU = 4;
+const WERSJA_SKRYPTU = 5;
 
-/** Zapytanie z aplikacji: { klucz, akcja: 'pobierz' | 'zapisz' | 'opis' | 'wersja' | 'streszczenia', tresc?, url?, od? } */
+/** Zapytanie z aplikacji: { klucz, akcja: 'pobierz' | 'zapisz' | 'opis' | 'wersja' | 'streszczenia' | 'streszczTeraz', tresc?, url?, od?, id?, rodzaj? } */
 function doPost(e) {
   let dane;
   try { dane = JSON.parse(e.postData.contents); } catch (x) { return wynik({ blad: 'złe dane' }); }
@@ -29,6 +32,7 @@ function doPost(e) {
   if (dane.akcja === 'wersja') return wynik({ wersja: WERSJA_SKRYPTU });
   if (dane.akcja === 'opis') return wynik(opisStrony(dane.url));
   if (dane.akcja === 'streszczenia') return wynik(odczytajStreszczenia(dane.od));
+  if (dane.akcja === 'streszczTeraz') return wynik(streszczTeraz(dane));
 
   // Blokada: dwa urządzenia naraz nie nadpiszą sobie pliku w połowie zapisu.
   const blokada = LockService.getScriptLock();
@@ -315,6 +319,25 @@ function streszczJeden(folder, zadanie) {
   }
 }
 
+/** Na żądanie z aplikacji: { id, url, tytul, rodzaj: 'krotkie' | 'szczegolowe' }.
+    Próbuje od nowa, także gdy wpis był wcześniej oznaczony „do ręcznego”.
+    Zwraca { streszczenie } – z tekstem albo z polem „problem”. */
+function streszczTeraz(dane) {
+  const rodzaj = dane.rodzaj === 'szczegolowe' ? 'szczegolowe' : 'krotkie';
+  if (!dane.id || !/^https?:\\/\\//i.test(String(dane.url || ''))) return { blad: 'zły adres' };
+  const folder = folderStreszczen();
+  const s = wczytajStreszczenie(folder, dane.id) || { id: dane.id };
+  if (s.doRecznego) delete s.doRecznego[rodzaj];
+  if (s.proby) delete s.proby[rodzaj];
+  try {
+    streszczJeden(folder, { w: { id: dane.id, url: dane.url, tytul: dane.tytul || '' }, s, rodzaj });
+  } catch (x) {
+    // Limit Gemini, brak klucza albo wyłączony silnik – problem jest już zapisany w s.
+    s.problem = String(x && x.message || x);
+  }
+  return { streszczenie: s };
+}
+
 /** Uruchamiana co godzinę przez harmonogram (i ręcznie, do sprawdzenia). */
 function streszczajCoGodzine() {
   // Dwa uruchomienia naraz nie zrobią dwa razy tego samego.
@@ -374,10 +397,11 @@ function pokazModele() {
   return modele;
 }
 
-/** Wyłączenie harmonogramu (streszczenia zostają na Drive). */
-function wylaczStreszczenia() {
+/** Wyłączenie harmonogramu co godzinę (streszczenia zostają na Drive,
+    przycisk „Streść teraz” w aplikacji działa dalej). */
+function zatrzymajHarmonogram() {
   ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'streszczajCoGodzine').forEach(t => ScriptApp.deleteTrigger(t));
-  Logger.log('Harmonogram wyłączony. Streszczenia zostają w Potok/Streszczenia.');
+  Logger.log('Harmonogram wyłączony. Streszczenia zostają w Potok/Streszczenia, „Streść teraz” w aplikacji działa dalej.');
 }
 
 /** &amp; &quot; &#39; &#x105; itp. → zwykłe znaki. */

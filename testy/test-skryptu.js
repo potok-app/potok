@@ -125,13 +125,13 @@ assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'opis', url: 'https:/
 const strony = g.strony; g.strony = new Proxy({}, { get: () => { throw new Error('Nie masz uprawnień do wywołania UrlFetchApp.fetch'); } });
 assert.match(zapytaj(g, { klucz: 'tajny', akcja: 'opis', url: 'https://danluu.com/ambitious' }).problem, /uprawnień/);
 g.strony = strony;
-assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'wersja' }), { wersja: 4 });
+assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'wersja' }), { wersja: 5 });
 assert.deepStrictEqual(zapytaj(g, { klucz: 'zly', akcja: 'wersja' }), { blad: 'zły klucz' });
 g.strony['https://www.youtube.com/oembed?format=json&url=' + encodeURIComponent('https://www.youtube.com/watch?v=jNQXAC9IVRw')] = { tekst: JSON.stringify({ title: 'Me at the zoo', author_name: 'jawed' }) };
 assert.strictEqual(g.sprawdzTytuly().tytul, 'Me at the zoo');
 assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'opis', url: 'file:///C:/x' }), { blad: 'zły adres' });
 assert.deepStrictEqual(zapytaj(g, { klucz: 'zly', akcja: 'opis', url: yt }), { blad: 'zły klucz' });
-assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 4);
+assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 5);
 
 // 4. Streszczenia (wersja 4).
 {
@@ -260,13 +260,32 @@ assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 4);
   g5.gemini = () => ({ odpowiedz: { candidates: [{ content: { parts: [{ text: 'ok' }] } }] } });
   assert.deepStrictEqual({ ...g5.streszczajCoGodzine() }, { ok: 2, 'ręcznie': 0, 'błąd': 0, czeka: 2 });
 
+  // Na żądanie z aplikacji: od razu, także dla wpisu „do ręcznego”; problem wraca do aplikacji.
+  const g6 = nowyGoogle();
+  g6.wlasciwosci.GEMINI_KLUCZ = 'k';
+  g6.strony['https://example.com/dlugi'] = { tekst: dlugi };
+  g6.gemini = () => ({ odpowiedz: { candidates: [{ content: { parts: [{ text: 'Na żądanie.' }] } }] } });
+  const nz = zapytaj(g6, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'd1', url: 'https://example.com/dlugi', tytul: 'D', rodzaj: 'krotkie' });
+  assert.strictEqual(nz.streszczenie.krotkie.tekst, 'Na żądanie.');
+  assert.strictEqual(JSON.parse(g6.foldery[0].podfoldery[0].pliki[0].tresc).krotkie.tekst, 'Na żądanie.', 'zapis na Drive');
+  assert.strictEqual(zapytaj(g6, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'd1', url: 'https://example.com/dlugi', rodzaj: 'szczegolowe' }).streszczenie.szczegolowe.tekst, 'Na żądanie.');
+  g6.strony['https://example.com/krotki'] = { tekst: '<p>Zaloguj się.</p>' };
+  assert.match(zapytaj(g6, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'd2', url: 'https://example.com/krotki' }).streszczenie.doRecznego.krotkie, /za mało tekstu/);
+  g6.strony['https://example.com/krotki'] = { tekst: dlugi };
+  assert.strictEqual(zapytaj(g6, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'd2', url: 'https://example.com/krotki' }).streszczenie.krotkie.tekst, 'Na żądanie.', 'ponowna próba po „do ręcznego”');
+  g6.gemini = () => ({ kod: 429, odpowiedz: { error: { message: 'Quota exceeded' } } });
+  assert.match(zapytaj(g6, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'd3', url: 'https://example.com/dlugi' }).streszczenie.problem, /429/);
+  assert.deepStrictEqual(zapytaj(g6, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'd4', url: 'file:///C:/x' }), { blad: 'zły adres' });
+  assert.deepStrictEqual(zapytaj(g6, { klucz: 'zly', akcja: 'streszczTeraz', id: 'd1', url: 'https://example.com/dlugi' }), { blad: 'zły klucz' });
+
   // wlaczStreszczenia: próbne streszczenie + jeden harmonogram co godzinę (bez dubli).
   g5.wlaczStreszczenia();
   g5.wlaczStreszczenia();
   assert.strictEqual(g5.wyzwalacze.length, 1);
   assert.strictEqual(g5.wyzwalacze[0].getHandlerFunction(), 'streszczajCoGodzine');
   assert.strictEqual(g5.wyzwalacze[0].h, 1);
-  g5.wylaczStreszczenia();
+  g5.zatrzymajHarmonogram();
+  assert.strictEqual(typeof g5.wylaczStreszczenia, 'undefined', 'stara, myląca nazwa ma zniknąć');
   assert.strictEqual(g5.wyzwalacze.length, 0);
 }
 console.log('Skrypt Google: OK (klucz, tworzenie pliku, zapis/odczyt, polskie znaki, blokada, tytuły linków, streszczenia: Gemini, YouTube, paywall, limity, Ollama, harmonogram)');

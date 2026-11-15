@@ -22,7 +22,16 @@ const ZRZUTY = process.argv[3];
   await s.goto('file://' + path.join(KATALOG, 'index.html'));
 
   // 1. Pusta aplikacja startuje w imporcie.
-  assert(await s.isVisible('#widok-eksport'), 'start: powinien być widok importu');
+  assert(await s.isVisible('#widok-dodaj'), 'start: powinien być widok „Dodaj”');
+  // Checkbox „Streścić”: dopisuje i zdejmuje „Streścić ” na początku opisu, domyślnie wyłączony.
+  assert.strictEqual(await s.isChecked('#dodaj-strescic'), false);
+  await s.fill('#nowy-opis', 'wywiad o AI');
+  await s.check('#dodaj-strescic');
+  assert.strictEqual(await s.inputValue('#nowy-opis'), 'Streścić wywiad o AI');
+  await s.uncheck('#dodaj-strescic');
+  assert.strictEqual(await s.inputValue('#nowy-opis'), 'wywiad o AI');
+  await s.fill('#nowy-opis', '');
+  await s.click('nav [data-widok=eksport]');
 
   // 2. Import prawdziwego dokumentu.
   await s.setInputFiles('#plik-import', DOCX);
@@ -34,6 +43,13 @@ const ZRZUTY = process.argv[3];
   // 3. Ponowny import – nic nowego.
   await s.setInputFiles('#plik-import', DOCX);
   await s.waitForFunction(() => /Zaimportowano 0/.test(document.querySelector('#wynik-importu').textContent));
+
+  // Po odświeżeniu (są już wpisy) – dalej „Dodaj”; logo „Potok” też prowadzi do „Dodaj”.
+  await s.reload();
+  assert(await s.isVisible('#widok-dodaj'), 'po odświeżeniu powinien być widok „Dodaj”');
+  await s.click('nav [data-widok=listy]');
+  await s.click('header h1');
+  assert(await s.isVisible('#widok-dodaj'), 'logo nie prowadzi do „Dodaj”');
 
   // 4. Przegląd: data zawsze widoczna, 4 decyzje.
   await s.click('nav [data-widok=przeglad]');

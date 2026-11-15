@@ -1,5 +1,13 @@
 # Potok – postęp prac i decyzje
 
+## 15.11.2026 (2) – „Streść teraz”, start na „Dodaj”, checkbox „Streścić” (skrypt v5, aplikacja v23)
+- **„✨ Streść teraz”** przy wpisie (skrzynka, „Streścić”, „Streścić szczegółowo”; tylko linki www bez streszczenia). Prośba: wolę zamawiać streszczenie z aplikacji, niż czekać na harmonogram. Skrypt Google robi je od razu (zwykle 10–60 s) i zwraca; aplikacja pokazuje wynik albo powód, czemu się nie da. Ponawia też wpisy oznaczone wcześniej „do ręcznego”.
+  - Skrypt v5: nowa akcja `streszczTeraz` { id, url, tytul, rodzaj }. Harmonogram co godzinę działa dalej (nic nie kosztuje poza limitem). Wyłącza go funkcja `zatrzymajHarmonogram` – dawna `wylaczStreszczenia`, zmieniona, bo myliła się z `wlaczStreszczenia` (wybrana przez pomyłkę 15.11).
+  - Aplikacja przy skrypcie starszym niż 5 pokazuje ramkę aktualizacji. Kto ma już v4 z kluczem Gemini, robi tylko kroki 1, 2, 5, 6 (nowy kod + nowa wersja wdrożenia).
+- **Start na „Dodaj”:** po otwarciu i odświeżeniu aplikacji pierwszy widok to „Dodaj” (wcześniej przegląd albo Pliki). Kliknięcie w logo „Potok” też przenosi do „Dodaj”. Powód: najczęściej otwieram Potok, żeby coś zapisać.
+- **Checkbox „Streścić”** pod polem „Opis”, domyślnie wyłączony. Zaznaczenie dopisuje „Streścić ” na początku opisu (widać to w polu), odznaczenie zdejmuje. Powód: najczęstszy dopisek, szkoda pisać go ręcznie. Wpis dalej trafia do skrzynki z podpowiedzią „Streścić”.
+- Testy: `test-skryptu.js` (streszczTeraz: od razu, zapis na Drive, ponowna próba po „do ręcznego”, limit 429, zły adres, zły klucz), `e2e.js` (start na „Dodaj”, logo, checkbox), `e2e-drive.js` krok 10 („Streść szczegółowo teraz”).
+
 ## 15.11.2026 – streszczenie w stylu NotebookLM
 - Prośba: „3–5 zdań to za mało, niech robi mniej więcej tak jak NotebookLM”. Zwykłe streszczenie (lista „Streścić”) ma teraz 2–3 akapity (ok. 200–300 słów: o czym, główna teza, uzasadnienie, wnioski) z pogrubionymi kluczowymi pojęciami, potem „Kluczowe punkty:” (4–6 punktów) i „Dla kogo:”. Zmienione tylko polecenie (`POLECENIE.krotkie` w Kod.gs). Szczegółowe bez zmian.
 - Limit zapytań się nie zmienia (jedno zapytanie na wpis), dłuższa odpowiedź mieści się w darmowym limicie tokenów.
