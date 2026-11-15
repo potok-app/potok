@@ -51,8 +51,8 @@ const Streszczenia = {
         try { wersja = (await Synchronizacja.doSkryptu({ akcja: 'wersja' })).wersja || 0; }
         catch (e) { if (!/nieznana akcja/.test(e.message)) return; }   // brak sieci – spróbujemy później
         this.wersjaSprawdzona = true;
-        // Wersja 5 = „Streść teraz”, 6 = modele zapasowe, 7 = limit czasu przy długich filmach; starsza → ramka.
-        if (wersja < 7) localStorage.setItem(Magazyn.klucz + '.skryptBezStreszczen', '1');
+        // Wersja 5 = „Streść teraz”, 6 = modele zapasowe, 7 = limit czasu, 8 = długie filmy do ręcznego; starsza → ramka.
+        if (wersja < 8) localStorage.setItem(Magazyn.klucz + '.skryptBezStreszczen', '1');
         else localStorage.removeItem(Magazyn.klucz + '.skryptBezStreszczen');
       }
       if (this.skryptStary()) return;
@@ -71,10 +71,10 @@ const Streszczenia = {
    * „Streść teraz”: skrypt Google robi streszczenie od razu (do ok. minuty)
    * i zwraca je. Zwraca streszczenie (z tekstem albo z polem „problem”/„doRecznego”).
    */
-  async teraz(w, rodzaj) {
+  async teraz(w, rodzaj, tekst) {
     let streszczenie;
     try {
-      ({ streszczenie } = await Synchronizacja.doSkryptu({ akcja: 'streszczTeraz', id: w.id, url: w.url, tytul: w.tytul, rodzaj }));
+      ({ streszczenie } = await Synchronizacja.doSkryptu({ akcja: 'streszczTeraz', id: w.id, url: w.url, tytul: w.tytul, rodzaj, ...(tekst ? { tekst } : {}) }));
     } catch (e) {
       // Skrypt nie odpowiedział (sieć, przekroczony czas) – zapisujemy to przy wpisie,
       // żeby wynik próby był widoczny także po zniknięciu komunikatu.
@@ -95,7 +95,7 @@ const Streszczenia = {
 
   /** Krótko do „Pliki”: ile gotowych, ile czeka, ile do ręcznego. */
   podsumowanie(wpisy) {
-    if (this.skryptStary()) return 'Streszczenia: potrzebny skrypt Google w wersji 7 (ramka niżej).';
+    if (this.skryptStary()) return 'Streszczenia: potrzebny skrypt Google w wersji 8 (ramka niżej).';
     const mapa = this.pamiec().mapa;
     const doZrobienia = wpisy.filter(w => (w.status === 'do_streszczenia' || w.status === 'szczegolowo') && w.url && /^https?:/i.test(w.url));
     const rodzaj = w => (w.status === 'szczegolowo' ? 'szczegolowe' : 'krotkie');
@@ -125,7 +125,9 @@ const Streszczenia = {
       else if (czeka) czesci.push(`<p class="streszczenie-stan">⏳ ${rodzaj === 'szczegolowe' ? 'Szczegółowe streszczenie' : 'Streszczenie'} w kolejce (automat co godzinę)${s && s.problem ? ` · ostatnia próba${s.zmieniono ? ' (' + esc(this.godzina(s.zmieniono)) + ')' : ''}: ${esc(s.problem)}` : ''}</p>`);
     }
     const zamow = this.doZamowienia(w);
-    if (zamow) czesci.push(`<button class="streszcz-teraz" data-streszcz="${esc(w.id)}" data-rodzaj="${zamow}">✨ ${zamow === 'szczegolowe' ? 'Streść szczegółowo teraz' : 'Streść teraz'}</button>`);
+    if (zamow) czesci.push(`<div class="streszcz-przyciski"><button class="streszcz-teraz" data-streszcz="${esc(w.id)}" data-rodzaj="${zamow}">✨ ${zamow === 'szczegolowe' ? 'Streść szczegółowo teraz' : 'Streść teraz'}</button>`
+      // „Wklej tekst”: transkrypcja długiego filmu (np. z Pobieracza YT) albo tekst artykułu zza paywalla.
+      + `<button class="streszcz-wklej" data-wklej="${esc(w.id)}" data-rodzaj="${zamow}">📋 Wklej tekst</button></div>`);
     return czesci.join('');
   },
 };

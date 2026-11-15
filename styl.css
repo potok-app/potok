@@ -89,3 +89,9 @@ header h1 { cursor: pointer; }
 label.zaznacz { display: flex; align-items: center; gap: 8px; margin: 4px 0 10px; }
 label.zaznacz input { width: 20px; height: 20px; margin: 0; }
 .streszcz-teraz { margin: 6px 0; }
+
+/* „Wklej tekst” (wersja 26). */
+.streszcz-przyciski { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.streszcz-przyciski button { margin: 0; }
+.wklej-tekst textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: 14px; padding: 8px; border: 1px solid var(--ramka); border-radius: 8px; background: var(--karta); color: var(--tekst); }
+.wklej-tekst button { margin: 6px 0; }
