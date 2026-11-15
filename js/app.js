@@ -363,7 +363,7 @@ async function streszczTeraz(przycisk) {
   if (!w) return;
   if (!navigator.onLine) return komunikat('Bez internetu – spróbuj, gdy wróci sieć.');
   przycisk.disabled = true;
-  przycisk.textContent = '⏳ Streszczam… (do minuty)';
+  przycisk.textContent = '⏳ Streszczam… (film może potrwać kilka minut)';
   try {
     const s = await Streszczenia.teraz(w, przycisk.dataset.rodzaj);
     const r = przycisk.dataset.rodzaj;

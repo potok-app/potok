@@ -1,5 +1,11 @@
 # Potok – postęp prac i decyzje
 
+## 15.11.2026 (5) – długie filmy: limit czasu zamiast zawieszenia (skrypt v7)
+- Objaw: „Streść teraz” przy długim podcaście z YouTube – po chwili przycisk wraca, a przy wpisie nadal „w kolejce”, bez żadnego błędu. Pierwszy link (krótszy) streścił się poprawnie.
+- Przyczyna (najbardziej prawdopodobna): Google przerywa pojedyncze zapytanie skryptu po ok. 60 s, a cały skrypt po 6 min. Gemini przy długim filmie potrafi nie odpowiedzieć w minutę; skrypt v6 próbował wtedy kolejnych modeli (z ponowieniami), aż Google uciął całe wykonanie – aplikacja nie dostała odpowiedzi, a nic się nie zapisało.
+- Skrypt v7: brak odpowiedzi Gemini → od razu następny model (bez ponawiania tego samego), a po 4 minutach koniec z czytelnym błędem „brak odpowiedzi … (długi film? …)”, zapisanym przy wpisie, bez zużycia prób. Napis na przycisku: „film może potrwać kilka minut”.
+- Jeśli długie filmy będą stale przekraczać czas: rozwiązaniem byłaby transkrypcja zamiast filmu (Pobieracz YT) – do decyzji później.
+
 ## 15.11.2026 (4) – wynik ostatniej próby widoczny przy wpisie (aplikacja v25)
 - Problem przy diagnozie: po „Streść teraz” wynik był tylko w komunikacie na dole ekranu (znika po 3,5 s), a przy wpisie zostawał stary błąd bez daty – nie było wiadomo, czy to nowa, czy stara próba.
 - Teraz „ostatnia próba” ma datę i godzinę, a gdy skrypt Google w ogóle nie odpowie (sieć, przekroczony czas), aplikacja zapisuje to przy wpisie („brak odpowiedzi skryptu Google: …”).
