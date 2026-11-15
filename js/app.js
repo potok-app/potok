@@ -24,7 +24,7 @@ function esc(t) {
 }
 
 // Numer wersji aplikacji – podbijaj razem z WERSJA w sw.js.
-const WERSJA_APLIKACJI = 22;
+const WERSJA_APLIKACJI = 23;
 
 // Krótki komunikat na dole ekranu.
 function komunikat(tekst) {
@@ -274,7 +274,7 @@ function pokazWidok(nazwa) {
   if (nazwa === 'przeglad') pokazPrzeglad();
   if (nazwa === 'listy') pokazListy();
   if (nazwa === 'zadania') pokazZadania();
-  if (nazwa === 'eksport') pokazStanEksportu();
+  if (nazwa === 'eksport') { pokazStanEksportu(); pokazStanSync(); }
 }
 
 /* --------------------- Google Drive (☁) ---------------------------- */
@@ -354,10 +354,45 @@ function pokazStanEksportu() {
   $('#stan-calosci').textContent = `Wszystkich wpisów: ${wpisy.length}.`;
 }
 
+/* -------------------- „Streść teraz” ------------------------------ */
+
+// Jeden przycisk przy wpisie – na listach i w przeglądzie. Skrypt Google
+// robi streszczenie od razu (zwykle 10–60 s), potem odświeżamy widok.
+async function streszczTeraz(przycisk) {
+  const w = Magazyn.wczytaj().find(x => x.id === przycisk.dataset.streszcz);
+  if (!w) return;
+  if (!navigator.onLine) return komunikat('Bez internetu – spróbuj, gdy wróci sieć.');
+  przycisk.disabled = true;
+  przycisk.textContent = '⏳ Streszczam… (do minuty)';
+  try {
+    const s = await Streszczenia.teraz(w, przycisk.dataset.rodzaj);
+    const r = przycisk.dataset.rodzaj;
+    komunikat(s[r] ? 'Streszczenie gotowe.'
+      : s.doRecznego && s.doRecznego[r] ? 'Nie da się streścić automatycznie: ' + s.doRecznego[r]
+      : 'Nie udało się: ' + (s.problem || 'nieznany problem'));
+  } catch (e) {
+    komunikat('Nie udało się: ' + e.message);
+  }
+  pokazWidok(aktualnyWidok);
+}
+
 /* ------------------------- Start ---------------------------------- */
 
 document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('nav button').forEach(b => b.onclick = () => pokazWidok(b.dataset.widok));
+  // Logo „Potok” = szybkie dodawanie (najczęstsza czynność).
+  $('header h1').onclick = () => pokazWidok('dodaj');
+  // „Streść teraz” – przyciski powstają przy każdym rysowaniu listy, więc jeden nasłuch na całą stronę.
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-streszcz]');
+    if (b && !b.disabled) streszczTeraz(b);
+  });
+  // Checkbox „Streścić” pod opisem: dopisuje / zdejmuje „Streścić ” na początku opisu.
+  $('#dodaj-strescic').onchange = e => {
+    const pole = $('#nowy-opis');
+    const bez = pole.value.replace(/^Streścić ?/, '');
+    pole.value = e.target.checked ? 'Streścić ' + bez : bez;
+  };
 
   $('#cofnij').onclick = () => {
     if (!ostatnia) return;
@@ -518,7 +553,8 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#wersja').textContent = 'Wersja aplikacji: ' + WERSJA_APLIKACJI +
     (slad ? ' · Ostatnie udostępnienie: ' + slad : ' · Jeszcze nic nie udostępniono do Potoku na tym urządzeniu.');
 
-  pokazWidok(Magazyn.wczytaj().length ? 'przeglad' : 'eksport');
+  // Na start zawsze „Dodaj” (decyzja z 15.11.2026: najczęściej otwieram Potok, żeby coś zapisać).
+  pokazWidok('dodaj');
   Synchronizacja.start();
   pokazStanSync();
 });

@@ -47,6 +47,13 @@ async function obsluzSkrypt(route) {
     drive.odczytyStreszczen.push(dane.od || '');
     return odp({ streszczenia: drive.streszczenia.filter(x => !dane.od || x.zmieniono > dane.od), teraz: new Date().toISOString() });
   }
+  // „Streść teraz” – od wersji 5 skryptu.
+  if (dane.akcja === 'streszczTeraz' && drive.wersjaSkryptu >= 5) {
+    const st = { id: dane.id, url: dane.url, zmieniono: new Date().toISOString() };
+    st[dane.rodzaj] = { tekst: 'Na żądanie: ' + dane.tytul, model: 'gemini-test', data: new Date().toISOString() };
+    drive.streszczenia.push(st);
+    return odp({ streszczenie: st });
+  }
   return odp({ blad: 'nieznana akcja' });
 }
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': '*' };
@@ -224,14 +231,14 @@ async function scenariusz(przegladarka, tryb) {
     await komp.s.waitForSelector('#skrypt-aktualizacja', { state: 'visible', timeout: 10000 });
     await komp.s.click('#pokaz-nowy-skrypt');
     const nowy = await komp.s.inputValue('#nowy-skrypt-tekst');
-    assert(nowy.includes("const KLUCZ = 'TAJNY-KLUCZ'") && nowy.includes('WERSJA_SKRYPTU = 4') && nowy.includes('function sprawdzTytuly') && nowy.includes('function wlaczStreszczenia'), 'nowy skrypt bez klucza lub wersji');
+    assert(nowy.includes("const KLUCZ = 'TAJNY-KLUCZ'") && nowy.includes('WERSJA_SKRYPTU = 5') && nowy.includes('function sprawdzTytuly') && nowy.includes('function wlaczStreszczenia'), 'nowy skrypt bez klucza lub wersji');
     // Skrypt w wersji 3 (tytuły działają, streszczeń brak) – ramka dalej prosi o wersję 4.
     drive.wersjaSkryptu = 3;
     await komp.s.click('#sync-teraz');
     await komp.s.waitForFunction(() => Magazyn.wczytaj().find(w => w.url === 'https://example.com/z-komputera').autor === 'Autor testowy', null, { timeout: 15000 });
     await komp.s.waitForFunction(() => Streszczenia.skryptStary(), null, { timeout: 10000 });
     assert(await komp.s.isVisible('#skrypt-aktualizacja'), 'przy skrypcie v3 brak prośby o wersję 4');
-    drive.wersjaSkryptu = 4;   // „wdrożono nową wersję”
+    drive.wersjaSkryptu = 5;   // „wdrożono nową wersję”
     await komp.s.click('#sync-teraz');
     await komp.s.waitForFunction(() => Magazyn.wczytaj().find(w => w.url === 'https://example.com/z-komputera').autor === 'Autor testowy', null, { timeout: 15000 });
     // Na komputerze: link z YouTube + dopisane „Streścić” → tytuł i autor też się pobierają, podpowiedź zostaje.
@@ -282,8 +289,13 @@ async function scenariusz(przegladarka, tryb) {
     assert.strictEqual(await komp.s.evaluate(id => Magazyn.wczytaj().find(x => x.id === id).status, w10.id), 'szczegolowo');
     await komp.s.click('#statusy [data-lista=szczegolowo]');
     assert.match(await komp.s.textContent('#lista'), /Szczegółowe streszczenie w kolejce/);
+    // „Streść szczegółowo teraz” – od razu, bez czekania na harmonogram.
+    await komp.s.click(`#lista [data-streszcz="${w10.id}"][data-rodzaj=szczegolowe]`);
+    await komp.s.waitForSelector('#lista details.szczegolowe', { timeout: 15000 });
+    assert.match(await komp.s.textContent('#lista details.szczegolowe'), /Na żądanie: /);
+    assert.strictEqual(await komp.s.locator('#lista [data-streszcz]').count(), 0, 'po streszczeniu przycisk znika');
     await komp.s.click('nav [data-widok=eksport]');
-    assert.match(await komp.s.textContent('#stan-streszczen-ai'), /Streszczenia AI: gotowe 0 · do ręcznego 0 · czekają 1/);
+    assert.match(await komp.s.textContent('#stan-streszczen-ai'), /Streszczenia AI: gotowe 1 · do ręcznego 0 · czekają 0/);
     await czekajWysylke(komp.s);
     await komp.s.click('#stan-sync'); await czekajNa(komp.s, /zapisane/);
     const zapisany = plikNaDrive('skrypt').wpisy.find(x => x.id === w10.id);

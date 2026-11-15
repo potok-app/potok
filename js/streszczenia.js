@@ -1,4 +1,4 @@
-/* streszczenia.js – streszczenia AI przy wpisach (od wersji 4 skryptu Google).
+/* streszczenia.js – streszczenia AI przy wpisach (od wersji 4 skryptu Google; „Streść teraz” od wersji 5).
 
    Streszczenia robi sam skrypt Google co godzinę (harmonogram), bez udziału
    aplikacji: wpisy „Streścić” dostają streszczenie w stylu NotebookLM (2–3 akapity + kluczowe punkty),
@@ -50,7 +50,8 @@ const Streszczenia = {
         try { wersja = (await Synchronizacja.doSkryptu({ akcja: 'wersja' })).wersja || 0; }
         catch (e) { if (!/nieznana akcja/.test(e.message)) return; }   // brak sieci – spróbujemy później
         this.wersjaSprawdzona = true;
-        if (wersja < 4) localStorage.setItem(Magazyn.klucz + '.skryptBezStreszczen', '1');
+        // Wersja 5 = „Streść teraz” z aplikacji; starsza → ramka z prośbą o aktualizację.
+        if (wersja < 5) localStorage.setItem(Magazyn.klucz + '.skryptBezStreszczen', '1');
         else localStorage.removeItem(Magazyn.klucz + '.skryptBezStreszczen');
       }
       if (this.skryptStary()) return;
@@ -65,15 +66,34 @@ const Streszczenia = {
     }
   },
 
+  /**
+   * „Streść teraz”: skrypt Google robi streszczenie od razu (do ok. minuty)
+   * i zwraca je. Zwraca streszczenie (z tekstem albo z polem „problem”/„doRecznego”).
+   */
+  async teraz(w, rodzaj) {
+    const { streszczenie } = await Synchronizacja.doSkryptu({ akcja: 'streszczTeraz', id: w.id, url: w.url, tytul: w.tytul, rodzaj });
+    this.zapamietaj([streszczenie]);
+    return streszczenie;
+  },
+
+  /** Które streszczenie można zamówić dla wpisu (null = żadne). */
+  doZamowienia(w) {
+    if (this.skryptStary() || !Synchronizacja.skrypt() || !w.url || !/^https?:/i.test(w.url)) return null;
+    const s = this.dla(w.id) || {};
+    if (w.status === 'szczegolowo') return s.szczegolowe ? null : 'szczegolowe';
+    if (['skrzynka', 'do_streszczenia'].includes(w.status)) return s.krotkie ? null : 'krotkie';
+    return null;
+  },
+
   /** Krótko do „Pliki”: ile gotowych, ile czeka, ile do ręcznego. */
   podsumowanie(wpisy) {
-    if (this.skryptStary()) return 'Streszczenia: potrzebny skrypt Google w wersji 4 (ramka niżej).';
+    if (this.skryptStary()) return 'Streszczenia: potrzebny skrypt Google w wersji 5 (ramka niżej).';
     const mapa = this.pamiec().mapa;
     const doZrobienia = wpisy.filter(w => (w.status === 'do_streszczenia' || w.status === 'szczegolowo') && w.url && /^https?:/i.test(w.url));
     const rodzaj = w => (w.status === 'szczegolowo' ? 'szczegolowe' : 'krotkie');
     const gotowe = doZrobienia.filter(w => mapa[w.id] && mapa[w.id][rodzaj(w)]).length;
     const reczne = doZrobienia.filter(w => mapa[w.id] && mapa[w.id].doRecznego && mapa[w.id].doRecznego[rodzaj(w)]).length;
-    return `Streszczenia AI: gotowe ${gotowe} · do ręcznego ${reczne} · czekają ${doZrobienia.length - gotowe - reczne} (skrypt Google robi je co godzinę).`
+    return `Streszczenia AI: gotowe ${gotowe} · do ręcznego ${reczne} · czekają ${doZrobienia.length - gotowe - reczne} (skrypt Google robi je co godzinę, a przyciskiem „Streść teraz” od razu).`
       + (this.ostatniBlad ? ` Ostatni problem: ${this.ostatniBlad}` : '');
   },
 
@@ -96,6 +116,8 @@ const Streszczenia = {
       if (s && s.doRecznego && s.doRecznego[rodzaj]) czesci.push(`<p class="streszczenie-stan">✋ Do ręcznego streszczenia: ${esc(s.doRecznego[rodzaj])}</p>`);
       else if (czeka) czesci.push(`<p class="streszczenie-stan">⏳ ${rodzaj === 'szczegolowe' ? 'Szczegółowe streszczenie' : 'Streszczenie'} w kolejce (automat co godzinę)${s && s.problem ? ` · ostatnia próba: ${esc(s.problem)}` : ''}</p>`);
     }
+    const zamow = this.doZamowienia(w);
+    if (zamow) czesci.push(`<button class="streszcz-teraz" data-streszcz="${esc(w.id)}" data-rodzaj="${zamow}">✨ ${zamow === 'szczegolowe' ? 'Streść szczegółowo teraz' : 'Streść teraz'}</button>`);
     return czesci.join('');
   },
 };

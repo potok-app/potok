@@ -83,3 +83,9 @@ form label { display: block; font-weight: 600; }
 .streszczenie .naglowek span, .streszczenie summary span { font-weight: 400; font-size: 12px; color: var(--slaby); }
 .streszczenie p { margin: 4px 0 0; }
 .streszczenie-stan { margin: 6px 0; font-size: 13px; color: var(--slaby); }
+
+/* Logo = przejście do „Dodaj”; checkbox „Streścić”; „Streść teraz” (wersja 23). */
+header h1 { cursor: pointer; }
+label.zaznacz { display: flex; align-items: center; gap: 8px; margin: 4px 0 10px; }
+label.zaznacz input { width: 20px; height: 20px; margin: 0; }
+.streszcz-teraz { margin: 6px 0; }
