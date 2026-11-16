@@ -10,78 +10,15 @@ const assert = require('assert');
 const KATALOG = path.resolve(__dirname, '..');
 const kod = fs.readFileSync(path.join(KATALOG, 'skrypt-google', 'Kod.gs'), 'utf8');
 
-// 1. Skrypt w aplikacji = Kod.gs
+// 1. Kod.gs ma aktualną kopię js/scal.js, a skrypt w aplikacji = Kod.gs.
+const { zbuduj } = require('../narzedzia/zbuduj-skrypt');
+assert.strictEqual(zbuduj().nowyKod, kod, 'Kod.gs ma nieaktualną kopię js/scal.js – uruchom: npm run skrypt');
 const wAplikacji = {};
 vm.runInNewContext(fs.readFileSync(path.join(KATALOG, 'js', 'skrypt-google.js'), 'utf8') + ';wynik.s = SKRYPT_GOOGLE;', { wynik: wAplikacji });
-assert.strictEqual(wAplikacji.s, kod, 'js/skrypt-google.js różni się od skrypt-google/Kod.gs');
+assert.strictEqual(wAplikacji.s, kod, 'js/skrypt-google.js różni się od skrypt-google/Kod.gs – uruchom: npm run skrypt');
 
-// 2. Udawany Google: foldery i pliki w pamięci.
-function nowyGoogle() {
-  const foldery = [];
-  const iterator = lista => ({ hasNext: () => lista.length > 0, next: () => lista.shift() });
-  let zegar = 0;   // kolejne „czasy zmian” plików
-  const nowyFolder = (nazwa, lista = foldery) => {
-    const pliki = [];
-    const podfoldery = [];
-    const f = {
-      nazwa, pliki, podfoldery,
-      getFilesByName: n => iterator(pliki.filter(p => p.nazwa === n)),
-      getFiles: () => iterator(pliki.slice()),
-      getFoldersByName: n => iterator(podfoldery.filter(x => x.nazwa === n)),
-      createFolder: n => nowyFolder(n, podfoldery),
-      createFile: (n, tresc) => {
-        const p = { nazwa: n, tresc, czas: ++zegar,
-          getBlob: () => ({ getDataAsString: () => p.tresc }),
-          setContent: t => { p.tresc = t; p.czas = ++zegar; },
-          getLastUpdated: () => new Date(Date.UTC(2026, 0, 1) + p.czas * 1000) };
-        pliki.push(p); return p;
-      },
-    };
-    lista.push(f);
-    return f;
-  };
-  let blokady = 0;
-  const g = {
-    foldery,
-    DriveApp: { getFoldersByName: n => iterator(foldery.filter(f => f.nazwa === n)), createFolder: n => nowyFolder(n) },
-    LockService: { getScriptLock: () => ({ waitLock: () => { blokady++; }, releaseLock: () => { blokady--; } }) },
-    ContentService: { MimeType: { JSON: 'json' }, createTextOutput: t => ({ tekst: t, setMimeType() { return this; } }) },
-    blokady: () => blokady,
-    // Udawany internet: adres → { kod, tekst, naglowki }.
-    strony: {},
-    // Udawane Gemini: funkcja (zapytanie, model) → { kod, odpowiedz }.
-    gemini: null,
-    zapytaniaGemini: [],
-    wlasciwosci: {},
-    pamiec: {},
-    wyzwalacze: [],
-    dziennik: [],
-    Logger: { log: t => g.dziennik.push(String(t)) },
-    Utilities: { sleep: () => {} },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: n => (n in g.wlasciwosci ? g.wlasciwosci[n] : null) }) },
-    CacheService: { getScriptCache: () => ({ get: k => g.pamiec[k] || null, put: (k, v) => { g.pamiec[k] = v; }, remove: k => { delete g.pamiec[k]; } }) },
-    ScriptApp: {
-      AuthMode: { FULL: 'FULL' }, requireAllScopes: () => {},
-      getProjectTriggers: () => g.wyzwalacze.slice(),
-      deleteTrigger: t => { g.wyzwalacze = g.wyzwalacze.filter(x => x !== t); },
-      newTrigger: f => ({ timeBased: () => ({ everyHours: h => ({ create: () => { const t = { getHandlerFunction: () => f, h }; g.wyzwalacze.push(t); return t; } }) }) }),
-    },
-    UrlFetchApp: { fetch: (url, opcje = {}) => {
-      if (url.startsWith('https://generativelanguage.googleapis.com/')) {
-        const model = decodeURIComponent((url.match(/models\/([^:]+):/) || [])[1] || '');
-        const zap = { url, model, klucz: (opcje.headers || {})['x-goog-api-key'], dane: JSON.parse(opcje.payload) };
-        g.zapytaniaGemini.push(zap);
-        const o = g.gemini(zap);
-        return { getResponseCode: () => o.kod || 200, getContentText: () => JSON.stringify(o.odpowiedz), getHeaders: () => ({}) };
-      }
-      const st = g.strony[url];
-      if (!st) throw new Error('brak sieci');
-      return { getResponseCode: () => st.kod || 200, getContentText: () => st.tekst, getHeaders: () => st.naglowki || { 'Content-Type': 'text/html; charset=utf-8' } };
-    } },
-  };
-  vm.runInNewContext(kod.replace("'WSTAW_KLUCZ'", "'tajny'"), g);
-  return g;
-}
+// 2. Udawany Google: foldery, pliki, Gemini, harmonogram w pamięci (testy/udawany-google.js).
+const { nowyGoogle } = require('./udawany-google');
 const zapytaj = (g, dane) => JSON.parse(g.doPost({ postData: { contents: JSON.stringify(dane) } }).tekst);
 
 const g = nowyGoogle();
@@ -123,15 +60,15 @@ g.strony['https://example.com/404'] = { kod: 404, tekst: '' };
 assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'opis', url: 'https://example.com/404' }), { tytul: '', problem: 'strona: kod 404' });
 // Brak zgody Google na łączenie ze stronami – błąd widoczny, a nie cichy pusty tytuł.
 const strony = g.strony; g.strony = new Proxy({}, { get: () => { throw new Error('Nie masz uprawnień do wywołania UrlFetchApp.fetch'); } });
-assert.match(zapytaj(g, { klucz: 'tajny', akcja: 'opis', url: 'https://danluu.com/ambitious' }).problem, /uprawnień/);
+assert.match(zapytaj(g, { klucz: 'tajny', akcja: 'opis', url: 'https://example.com/artykul' }).problem, /uprawnień/);
 g.strony = strony;
-assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'wersja' }), { wersja: 9 });
+assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'wersja' }), { wersja: 10 });
 assert.deepStrictEqual(zapytaj(g, { klucz: 'zly', akcja: 'wersja' }), { blad: 'zły klucz' });
 g.strony['https://www.youtube.com/oembed?format=json&url=' + encodeURIComponent('https://www.youtube.com/watch?v=jNQXAC9IVRw')] = { tekst: JSON.stringify({ title: 'Me at the zoo', author_name: 'jawed' }) };
 assert.strictEqual(g.sprawdzTytuly().tytul, 'Me at the zoo');
 assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'opis', url: 'file:///C:/x' }), { blad: 'zły adres' });
 assert.deepStrictEqual(zapytaj(g, { klucz: 'zly', akcja: 'opis', url: yt }), { blad: 'zły klucz' });
-assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 9);
+assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 10);
 
 // 4. Streszczenia (wersja 4).
 {
@@ -219,7 +156,7 @@ assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 9);
   assert.deepStrictEqual(g2.zapytaniaGemini.map(z => z.model), ['inny-model', 'gemini-3.8-flash'],
     'po 429 każdy model z listy raz (osobne limity), potem przerwa w tym uruchomieniu');
   assert.strictEqual(w429.czeka, 2);
-  const s429 = JSON.parse(g2.foldery[0].podfoldery[0].pliki[0].tresc);
+  const s429 = JSON.parse(g2.foldery[0].podfoldery.find(f => f.nazwa === 'Streszczenia').pliki[0].tresc);
   assert.match(s429.problem, /429/);
   assert.strictEqual(s429.proby, undefined);
   // Błąd materiału (400): bez modeli zapasowych, liczony do 3 prób, potem wpis czeka na ręczne.
@@ -238,7 +175,7 @@ assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 9);
     : { odpowiedz: { candidates: [{ content: { parts: [{ text: 'Z zapasowego.' }] } }] } };
   g7.streszczajCoGodzine();
   assert.deepStrictEqual(g7.zapytaniaGemini.map(z => z.model), ['gemini-3.5-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.8-flash']);
-  const s7 = JSON.parse(g7.foldery[0].podfoldery[0].pliki[0].tresc);
+  const s7 = JSON.parse(g7.foldery[0].podfoldery.find(f => f.nazwa === 'Streszczenia').pliki[0].tresc);
   assert.strictEqual(s7.krotkie.tekst, 'Z zapasowego.');
   assert.strictEqual(s7.krotkie.model, 'gemini-3.8-flash', 'zapisany model, który naprawdę streścił');
   // Wszystkie przeciążone: problem zapisany, próba nie liczona; własna lista zapasowych z ustawień.
@@ -258,12 +195,12 @@ assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 9);
   zapytaj(g3, { klucz: 'tajny', akcja: 'zapisz', tresc: JSON.stringify({ wersja: 1, wpisy: [wpisy[0], wpisy[1]] }) });
   g3.wlasciwosci.SILNIK = 'wylaczony';
   g3.streszczajCoGodzine();
-  assert.strictEqual((g3.foldery[0].podfoldery[0] || { pliki: [] }).pliki.length, 0);
+  assert.strictEqual((g3.foldery[0].podfoldery.find(f => f.nazwa === 'Streszczenia') || { pliki: [] }).pliki.length, 0);
   g3.wlasciwosci.SILNIK = 'ollama';
   g3.wlasciwosci.OLLAMA_ADRES = 'https://ollama.example/';
   g3.strony['https://ollama.example/api/generate'] = { tekst: JSON.stringify({ response: 'Bielik: krótko' }) };
   g3.streszczajCoGodzine();
-  const pl3 = id => JSON.parse(g3.foldery[0].podfoldery[0].pliki.find(p => p.nazwa === id + '.json').tresc);
+  const pl3 = id => JSON.parse(g3.foldery[0].podfoldery.find(f => f.nazwa === 'Streszczenia').pliki.find(p => p.nazwa === id + '.json').tresc);
   assert.strictEqual(pl3('a1').krotkie.tekst, 'Bielik: krótko');
   assert.strictEqual(pl3('a1').krotkie.model, 'SpeakLeash/bielik-4.5b-v3.0-instruct:Q8_0');
   assert.match(pl3('a2').doRecznego.krotkie, /Ollama nie streszcza filmów/);
@@ -275,7 +212,7 @@ assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 9);
   zapytaj(g4, { klucz: 'tajny', akcja: 'zapisz', tresc: JSON.stringify({ wersja: 1, wpisy: [wpisy[0]] }) });
   g4.gemini = () => ({ odpowiedz: { candidates: [{ content: { parts: [{ text: 'BRAK TREŚCI' }] } }] } });
   g4.streszczajCoGodzine();
-  assert.match(JSON.parse(g4.foldery[0].podfoldery[0].pliki[0].tresc).doRecznego.krotkie, /AI nie znalazło/);
+  assert.match(JSON.parse(g4.foldery[0].podfoldery.find(f => f.nazwa === 'Streszczenia').pliki[0].tresc).doRecznego.krotkie, /AI nie znalazło/);
 
   // NA_RAZ: tylko tyle wpisów w jednym uruchomieniu.
   const g5 = nowyGoogle();
@@ -293,7 +230,7 @@ assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 9);
   g6.gemini = () => ({ odpowiedz: { candidates: [{ content: { parts: [{ text: 'Na żądanie.' }] } }] } });
   const nz = zapytaj(g6, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'd1', url: 'https://example.com/dlugi', tytul: 'D', rodzaj: 'krotkie' });
   assert.strictEqual(nz.streszczenie.krotkie.tekst, 'Na żądanie.');
-  assert.strictEqual(JSON.parse(g6.foldery[0].podfoldery[0].pliki[0].tresc).krotkie.tekst, 'Na żądanie.', 'zapis na Drive');
+  assert.strictEqual(JSON.parse(g6.foldery[0].podfoldery.find(f => f.nazwa === 'Streszczenia').pliki[0].tresc).krotkie.tekst, 'Na żądanie.', 'zapis na Drive');
   assert.strictEqual(zapytaj(g6, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'd1', url: 'https://example.com/dlugi', rodzaj: 'szczegolowe' }).streszczenie.szczegolowe.tekst, 'Na żądanie.');
   g6.strony['https://example.com/krotki'] = { tekst: '<p>Zaloguj się.</p>' };
   assert.match(zapytaj(g6, { klucz: 'tajny', akcja: 'streszczTeraz', id: 'd2', url: 'https://example.com/krotki' }).streszczenie.doRecznego.krotkie, /za mało tekstu/);
@@ -391,4 +328,57 @@ assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 9);
   assert.strictEqual(typeof g5.wylaczStreszczenia, 'undefined', 'stara, myląca nazwa ma zniknąć');
   assert.strictEqual(g5.wyzwalacze.length, 0);
 }
-console.log('Skrypt Google: OK (klucz, tworzenie pliku, zapis/odczyt, polskie znaki, blokada, tytuły linków, streszczenia: Gemini, YouTube, paywall, limity, Ollama, harmonogram)');
+// 5. Wersja 10: bezpieczniki zapisu, kopie dzienne, „synchronizuj”, kosz (audyt 16.11.2026).
+{
+  const g = nowyGoogle();
+  const tresc = wpisy => JSON.stringify({ wersja: 1, wpisy });
+  const t2 = tresc([{ id: 'w1', tytul: 'Zażółć' }, { id: 'w2', tytul: 'drugi' }]);
+  assert.deepStrictEqual(g.zapytaj({ klucz: 'tajny', akcja: 'zapisz', tresc: t2 }), { ok: true });
+  assert.strictEqual(g.wlasciwosci.plikId, g.plikJson().id, 'skrypt nie zapamiętał pliku');
+  // Pierwsza zmiana dnia → kopia poprzedniej treści; druga tego dnia – już nie.
+  assert.strictEqual(g.kopie().length, 1, 'brak kopii dziennej');
+  assert.match(g.kopie()[0].nazwa, /^Potok-\d{4}-\d{2}-\d{2}\.json$/);
+  g.zapytaj({ klucz: 'tajny', akcja: 'zapisz', tresc: tresc([{ id: 'w1' }, { id: 'w2' }, { id: 'w3' }]) });
+  assert.strictEqual(g.kopie().length, 1, 'druga kopia tego samego dnia');
+  const przed = g.plikJson().tresc;
+  // Nic nie może ubyć, tylko poprawny plik.
+  for (const [zla, opis] of [[tresc([{ id: 'w1' }]), 'bez wpisów'], [tresc([]), 'pusta lista'], ['to nie json', 'nie-JSON'],
+    [JSON.stringify({ wersja: 1 }), 'bez listy'], [undefined, 'bez treści']]) {
+    assert.ok(g.zapytaj({ klucz: 'tajny', akcja: 'zapisz', tresc: zla }).blad, opis + ' – powinno być odrzucone');
+    assert.strictEqual(g.plikJson().tresc, przed, opis + ' – plik zmieniony');
+  }
+  assert.match(g.zapytaj({ klucz: 'tajny', akcja: 'zapisz', tresc: tresc([{ id: 'w1' }]) }).blad, /ubyło wpisów \(2\)/);
+  // Synchronizuj: łączy dane urządzenia z plikiem.
+  const w4 = { id: 'w4', tytul: 'z telefonu', status: 'skrzynka', dodano: '2026-11-16T10:00:00Z', zmieniono: '2026-11-16T10:00:00Z', historia: [], kolejnosc: 9 };
+  const odp = g.zapytaj({ klucz: 'tajny', akcja: 'synchronizuj', tresc: tresc([w4]) });
+  assert.deepStrictEqual(JSON.parse(odp.tresc).wpisy.map(w => w.id).sort(), ['w1', 'w2', 'w3', 'w4']);
+  assert.strictEqual(g.plikJson().tresc, odp.tresc);
+  const bez = g.plikJson().tresc;
+  assert.strictEqual(g.zapytaj({ klucz: 'tajny', akcja: 'synchronizuj', tresc: tresc([w4]) }).tresc, bez, 'bez zmian plik nietknięty');
+  assert.ok(g.zapytaj({ klucz: 'tajny', akcja: 'synchronizuj', tresc: '{"x":1}' }).blad);
+  // Uszkodzony plik: najpierw kopia „uszkodzony”, potem dane urządzenia.
+  g.plikJson().tresc = '{zepsute';
+  assert.deepStrictEqual(JSON.parse(g.zapytaj({ klucz: 'tajny', akcja: 'synchronizuj', tresc: tresc([w4]) }).tresc).wpisy.map(w => w.id), ['w4']);
+  assert.ok(g.kopie().some(k => /uszkodzony/.test(k.nazwa) && k.tresc === '{zepsute'), 'brak kopii uszkodzonego pliku');
+  // Nowsza wersja formatu – skrypt nie nadpisze.
+  g.plikJson().tresc = JSON.stringify({ wersja: 99, wpisy: [] });
+  assert.match(g.zapytaj({ klucz: 'tajny', akcja: 'synchronizuj', tresc: tresc([w4]) }).blad, /nowsza wersja/);
+  g.plikJson().tresc = tresc([w4]);
+  // Kosz: czytelny błąd, a nie nowy pusty plik; streszczenia też stoją.
+  g.plikJson().kosz = true;
+  assert.match(g.zapytaj({ klucz: 'tajny', akcja: 'pobierz' }).blad, /w koszu/);
+  assert.strictEqual(g.potok().pliki.length, 1, 'utworzono nowy plik mimo kosza');
+  assert.throws(() => g.streszczajCoGodzine(), /w koszu/);
+  // Nowa instalacja (bez zapamiętanego id): folder w koszu jest pomijany.
+  const g2 = nowyGoogle();
+  const stary = g2.DriveApp.createFolder('Potok'); stary.createFile('Potok.json', tresc([{ id: 'stary' }])); stary.kosz = true;
+  assert.deepStrictEqual(JSON.parse(g2.zapytaj({ klucz: 'tajny', akcja: 'pobierz' }).tresc).wpisy, []);
+  assert.strictEqual(g.blokady(), 0, 'blokada nie została zwolniona');
+  // Tytuły: długi przycięty do 300 znaków, PDF bez czytania treści.
+  g2.strony['https://example.com/dlugi-tytul'] = { tekst: '<title>' + 'a'.repeat(1000) + '</title>' };
+  assert.strictEqual(g2.zapytaj({ klucz: 'tajny', akcja: 'opis', url: 'https://example.com/dlugi-tytul' }).tytul.length, 300);
+  g2.strony['https://example.com/plik.pdf'] = { tekst: '%PDF', naglowki: { 'Content-Type': 'application/pdf' } };
+  assert.deepStrictEqual(g2.zapytaj({ klucz: 'tajny', akcja: 'opis', url: 'https://example.com/plik.pdf' }), { tytul: '', problem: 'to nie strona (application/pdf)' });
+}
+
+console.log('Skrypt Google: OK (klucz, tworzenie pliku, zapis/odczyt, polskie znaki, blokada, tytuły linków, bezpieczniki zapisu v10, kopie dzienne, synchronizuj, kosz, streszczenia: Gemini, YouTube, paywall, limity, Ollama, harmonogram)');

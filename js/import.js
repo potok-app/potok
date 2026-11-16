@@ -218,7 +218,7 @@ const Import = {
     return typeof w.prywatne === 'boolean' ? w.prywatne : this.sugerujPrywatne(w.tekst);
   },
 
-  /** Czytelny opis z samego adresu, np. „YouTube · c9Rm-MGHu0c”, „plik: raport.pdf”. */
+  /** Czytelny opis z samego adresu, np. „YouTube · abc123XYZ_0”, „plik: raport.pdf”. */
   tytulZAdresu(url) {
     try {
       const u = new URL(url);

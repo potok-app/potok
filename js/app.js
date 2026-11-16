@@ -24,15 +24,29 @@ function esc(t) {
 }
 
 // Numer wersji aplikacji – podbijaj razem z WERSJA w sw.js.
-const WERSJA_APLIKACJI = 27;
+const WERSJA_APLIKACJI = 28;
 
-// Krótki komunikat na dole ekranu.
-function komunikat(tekst) {
+// Krótki komunikat na dole ekranu. Opcjonalnie z przyciskiem (np. „Cofnij”).
+function komunikat(tekst, przycisk = null, czas = 3500) {
   const el = $('#komunikat');
   el.textContent = tekst;
+  if (przycisk) {
+    const b = document.createElement('button');
+    b.textContent = przycisk.etykieta;
+    b.onclick = () => { el.hidden = true; przycisk.akcja(); };
+    el.append(' ', b);
+  }
   el.hidden = false;
   clearTimeout(komunikat.t);
-  komunikat.t = setTimeout(() => (el.hidden = true), 3500);
+  komunikat.t = setTimeout(() => (el.hidden = true), przycisk ? Math.max(czas, 12000) : czas);
+}
+
+// Link wpisu jako HTML – tylko dla bezpiecznego adresu (http, https, file).
+// To druga linia obrony: adres jest sprawdzany już przy zapisie (Magazyn.napraw).
+function linkWpisu(w, tresc, klasa = '') {
+  const adres = Magazyn.bezpiecznyAdres(w.url);
+  if (!adres) return tresc;
+  return `<a ${klasa ? `class="${esc(klasa)}" ` : ''}href="${esc(adres)}" target="_blank" rel="noopener noreferrer">${tresc}</a>`;
 }
 
 // Decyzje dostępne w przeglądzie (status → etykieta przycisku).
@@ -96,16 +110,17 @@ function pokazPrzeglad() {
     ? (p ? '← To jednak treść' : 'To zadanie →')
     : (p ? '← Mniej wyborów' : 'Więcej wyborów →');
   w.sugestia = Magazyn.statusZadania(w.tekst) || Import.sugerujStatus(w.tekst) || w.sugestia;
-  const domena = w.url ? (() => { try { return new URL(w.url).hostname.replace(/^www\./, ''); } catch { return ''; } })() : '';
+  const adres = Magazyn.bezpiecznyAdres(w.url);
+  const domena = adres ? (() => { try { return new URL(adres).hostname.replace(/^www\./, ''); } catch { return ''; } })() : '';
 
   el.querySelector('.karta').innerHTML = `
     <div class="data">Dodano: <strong>${esc(ladnaData(w.dodano))}</strong>
       ${w.uwagaDaty ? `<span class="uwaga">(${esc(w.uwagaDaty)})</span>` : ''}</div>
     <h2>${esc(w.tytul)}</h2>
     ${w.autor ? `<p class="autor">${esc(w.autor)}</p>` : ''}
-    ${!w.url ? `<p class="notatka">Zadanie / pomysł (bez linku)</p>`
+    ${!adres ? `<p class="notatka">Zadanie / pomysł (bez linku)</p>`
       : zablokowany(w) ? `<p class="link zablokowany">🏠 Otwórz w domu <span>${esc(domena)}</span></p>`
-      : `<a class="link" href="${esc(w.url)}" target="_blank" rel="noopener">Otwórz ↗ <span>${esc(domena || w.url)}</span></a>`}
+      : linkWpisu(w, `Otwórz ↗ <span>${esc(domena || adres)}</span>`, 'link')}
     ${w.tekst && w.tekst !== w.tytul ? `<p class="oryginal"><span>Oryginalny wpis:</span> ${esc(w.tekst)}</p>` : ''}
     ${Streszczenia.html(w)}
     ${w.sugestia && przyciski.some(([s]) => s === w.sugestia) ? `<p class="sugestia">Podpowiedź z oznaczenia w tekście: <strong>${esc(STATUSY[w.sugestia])}</strong></p>` : ''}
@@ -114,10 +129,10 @@ function pokazPrzeglad() {
     </button>
     <div class="decyzje">
       ${przyciski.map(([s, etykieta]) =>
-        `<button data-status="${s}" class="${s === w.sugestia ? 'sugerowany' : ''}">${etykieta}</button>`).join('')}
+        `<button data-status="${esc(s)}" class="${s === w.sugestia ? 'sugerowany' : ''}">${esc(etykieta)}</button>`).join('')}
     </div>
     <div class="drugorzedne">
-      <button data-przelacz="1">${etykietaPrzelacznika}</button>
+      <button data-przelacz="1">${esc(etykietaPrzelacznika)}</button>
       <button data-pomin="1">Pomiń na razie →</button>
     </div>`;
 
@@ -169,7 +184,7 @@ function rysujListy({ czesc, grupa, cele, el, dodatki = () => '' }) {
   // Zakładki statusów z licznikami.
   el.statusy.innerHTML = grupa.map(s => {
     const ile = wpisy.filter(w => w.status === s).length;
-    return `<button data-lista="${s}" class="${s === aktywna[czesc] ? 'aktywny' : ''}">${esc(STATUSY[s])} <b>${ile}</b></button>`;
+    return `<button data-lista="${esc(s)}" class="${s === aktywna[czesc] ? 'aktywny' : ''}">${esc(STATUSY[s])} <b>${ile}</b></button>`;
   }).join('');
   el.statusy.querySelectorAll('[data-lista]').forEach(b =>
     b.onclick = () => { aktywna[czesc] = b.dataset.lista; pokazWidok(czesc === 'potok' ? 'listy' : 'zadania'); });
@@ -183,15 +198,15 @@ function rysujListy({ czesc, grupa, cele, el, dodatki = () => '' }) {
     <li>
       <div class="data">Dodano: ${esc(ladnaData(w.dodano))}</div>
       <div class="tytul">${Import.czyPrywatne(w) ? '🏠 ' : ''}${w.url && !zablokowany(w)
-        ? `<a href="${esc(w.url)}" target="_blank" rel="noopener">${esc(w.tytul)}</a>`
+        ? linkWpisu(w, esc(w.tytul))
         : esc(w.tytul) + (w.url ? ' <span class="uwaga">(otwórz w domu)</span>' : '')}${w.autor ? ` <span class="autor">· ${esc(w.autor)}</span>` : ''}</div>
       ${ostatniaZmiana(w)}
       ${Streszczenia.html(w)}
       <div class="dalej">
         ${cele.filter(([s]) => s !== w.status).map(([s, n]) =>
-          `<button data-id="${w.id}" data-na="${s}">→ ${esc(n)}</button>`).join('')}
+          `<button data-id="${esc(w.id)}" data-na="${esc(s)}">→ ${esc(n)}</button>`).join('')}
         ${dodatki(w)}
-        <button data-dom="${w.id}" class="${Import.czyPrywatne(w) ? 'wlaczone' : ''}" title="Tylko prywatnie">🏠</button>
+        <button data-dom="${esc(w.id)}" class="${Import.czyPrywatne(w) ? 'wlaczone' : ''}" title="Tylko prywatnie">🏠</button>
       </div>
     </li>`).join('') : '<li class="pusto">Nic tu nie ma.</li>';
 
@@ -227,7 +242,7 @@ function pokazZadania() {
     cele: [...GRUPA_ZADANIA.map(s => [s, STATUSY[s]]), ['skrzynka', 'Potok']],
     el: { statusy: $('#zadania-statusy'), lista: $('#zadania-lista'), podsumowanie: $('#podsumowanie-zadan') },
     // Pomysły dla Claude'a da się skopiować i wkleić prosto do rozmowy.
-    dodatki: w => w.status === 'zrobic_claude' ? `<button data-kopiuj="${w.id}">Kopiuj</button>` : '',
+    dodatki: w => w.status === 'zrobic_claude' ? `<button data-kopiuj="${esc(w.id)}">Kopiuj</button>` : '',
   });
   $('#zadania-lista').querySelectorAll('[data-kopiuj]').forEach(b => b.onclick = async () => {
     const w = Magazyn.wczytaj().find(x => x.id === b.dataset.kopiuj);
@@ -249,9 +264,9 @@ function ostatniaZmiana(w) {
 function dodajRecznie(url, opis, zrodlo) {
   url = (url || '').trim();
   opis = (opis || '').trim();
-  if (!url && !opis) return komunikat('Wpisz link albo opis.');
+  if (!url && !opis) { komunikat('Wpisz link albo opis.'); return []; }
   const tekst = [opis, url].filter(Boolean).join(' ');
-  const { dodane } = Magazyn.dodaj([{
+  const { dodane, ids } = Magazyn.dodaj([{
     url: url || null,
     // „Streścić” itp. to oznaczenie, nie tytuł – wtedy tytułem jest adres,
     // a prawdziwy tytuł i autor pobiorą się w tle (opisy.js).
@@ -260,7 +275,8 @@ function dodajRecznie(url, opis, zrodlo) {
     zrodlo,
     sugestia: Import.sugerujStatus(opis),
   }]);
-  komunikat(dodane ? 'Dodano do skrzynki.' : 'Ten wpis już jest w Potoku.');
+  if (zrodlo !== 'udostępnij') komunikat(dodane ? 'Dodano do skrzynki.' : 'Ten wpis już jest w Potoku.');
+  return ids;
 }
 
 /* ------------------------ Nawigacja ------------------------------- */
@@ -275,6 +291,7 @@ function pokazWidok(nazwa) {
   if (nazwa === 'listy') pokazListy();
   if (nazwa === 'zadania') pokazZadania();
   if (nazwa === 'eksport') { pokazStanEksportu(); pokazStanSync(); }
+  pokazAlarm();   // po odczycie danych – wtedy wiadomo, czy są uszkodzone
 }
 
 /* --------------------- Google Drive (☁) ---------------------------- */
@@ -286,17 +303,17 @@ function pokazStanSync() {
   el.textContent = tekst;
   el.className = 'stan-sync ' + Synchronizacja.stan;
   el.title = Synchronizacja.blad || '';
-  const polaczone = !!Synchronizacja.skrypt() || (Synchronizacja.polaczone() && !!window.USTAWIENIA.googleClientId);
+  const polaczone = !!Synchronizacja.skrypt();
   $('#opis-sync').textContent = polaczone
     ? 'Połączono. ' + tekst.replace('☁ ', 'Stan: ') + (Synchronizacja.blad ? ' – ' + Synchronizacja.blad : '')
     : 'Nie połączono. Zrób raz poniższe kroki (ok. 5 minut).';
   $('#sync-konfiguracja').hidden = polaczone;
   $('#sync-polaczone').hidden = !polaczone;
   $('#kopiuj-kod').hidden = !Synchronizacja.skrypt();
-  $('#skrypt-aktualizacja').hidden = !(Synchronizacja.skrypt() && (Opisy.skryptStary() || Streszczenia.skryptStary()));
+  $('#skrypt-aktualizacja').hidden = !Synchronizacja.skryptDoAktualizacji();
   $('#stan-opisow').textContent = Synchronizacja.skrypt() ? Opisy.podsumowanie(Magazyn.wczytaj()) : '';
   $('#stan-streszczen-ai').textContent = Synchronizacja.skrypt() ? Streszczenia.podsumowanie(Magazyn.wczytaj()) : '';
-  $('#polacz-drive').hidden = !window.USTAWIENIA.googleClientId;
+  $('#tytuly-wszystkie').checked = Opisy.wszystkieStrony();
 }
 
 // Klucz dla nowego skryptu – tworzony raz i pamiętany, aż do połączenia.
@@ -311,10 +328,9 @@ async function kopiuj(tekst, info) {
   catch { komunikat('Przeglądarka nie pozwoliła skopiować – zaznacz i skopiuj ręcznie (Ctrl+C).'); }
 }
 
-// Kliknięcie w ☁: zaloguj (jeśli trzeba) albo synchronizuj od razu.
+// Kliknięcie w ☁: synchronizuj od razu.
 function kliknijSync() {
-  if (!Synchronizacja.skrypt() && !Synchronizacja.token()) Synchronizacja.zaloguj();
-  else Synchronizacja.synchronizuj();
+  Synchronizacja.synchronizuj();
 }
 
 function pokazUrzadzenie() {
@@ -351,7 +367,31 @@ function pokazStanEksportu() {
   const czekajace = wyslaneDoStreszczenia().filter(id => wpisy.some(w => w.id === id && w.status === 'do_streszczenia'));
   $('#po-streszczeniu').hidden = !czekajace.length;
   $('#streszczone').textContent = `Streszczone – przenieś ${czekajace.length} wysłanych do Archiwum`;
-  $('#stan-calosci').textContent = `Wszystkich wpisów: ${wpisy.length}.`;
+  const zajete = Magazyn.zajetosc();
+  $('#stan-calosci').textContent = `Wszystkich wpisów: ${wpisy.length}. Zajęte ${Math.max(1, Math.round(zajete * 100))}% miejsca w tej przeglądarce.`
+    + (zajete >= 0.7 ? ' UWAGA: miejsca zaczyna brakować – zrób kopię zapasową i daj znać Claude\'owi.' : '');
+  pokazDiagnostyke();
+}
+
+// Pliki → Diagnostyka: ostatnie błędy aplikacji (bez treści wpisów i bez klucza).
+function pokazDiagnostyke() {
+  const lista = Bledy.lista();
+  $('#diagnostyka').hidden = !lista.length;
+  $('#diagnostyka-lista').textContent = Bledy.tekst();
+}
+
+// Uszkodzone dane w tej przeglądarce: czerwony pasek u góry z decyzją.
+function pokazAlarm() {
+  const kopia = Magazyn.uszkodzone();
+  $('#alarm').hidden = !kopia;
+  if (kopia) $('#alarm-kopia').textContent = kopia;
+}
+
+// Potok nie działa wewnątrz cudzej strony (ochrona przed „podstawionymi” kliknięciami).
+// Wyjątki: ta sama strona (podglad.html) i plik z dysku.
+function obcaRamka() {
+  if (window.top === window.self || location.protocol === 'file:') return false;
+  try { return window.top.location.origin !== location.origin; } catch { return true; }
 }
 
 /* -------------------- „Streść teraz” ------------------------------ */
@@ -395,6 +435,10 @@ async function zapiszGotowe(przycisk, tekst) {
 /* ------------------------- Start ---------------------------------- */
 
 document.addEventListener('DOMContentLoaded', () => {
+  if (obcaRamka()) {
+    document.body.textContent = 'Potok nie otwiera się wewnątrz innej strony. Otwórz go bezpośrednio.';
+    return;
+  }
   document.querySelectorAll('nav button').forEach(b => b.onclick = () => pokazWidok(b.dataset.widok));
   // Logo „Potok” = szybkie dodawanie (najczęstsza czynność).
   $('header h1').onclick = () => pokazWidok('dodaj');
@@ -445,7 +489,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Synchronizacja z Google Drive.
   $('#stan-sync').onclick = kliknijSync;
-  $('#polacz-drive').onclick = () => Synchronizacja.zaloguj();
   $('#pokaz-skrypt').onclick = () => {
     $('#skrypt-tekst').value = SKRYPT_GOOGLE.replace('WSTAW_KLUCZ', kluczDlaSkryptu());
     $('#skrypt-pole').hidden = false;
@@ -473,11 +516,23 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#kopiuj-kod').onclick = () => kopiuj(Synchronizacja.kodPolaczenia(), 'Skopiowano kod połączenia – wklej go na drugim urządzeniu w „Pliki → Google Drive”.');
   $('#rozlacz').onclick = () => {
     if (!confirm('Odłączyć to urządzenie od Google Drive? Wpisy zostaną tutaj i na Drive.')) return;
-    for (const k of ['.skrypt', '.drive', '.token', '.plikId']) localStorage.removeItem(Magazyn.klucz + k);
-    Synchronizacja.ustawStan('niepolaczone');
+    Synchronizacja.rozlacz();
   };
   // „Synchronizuj teraz” sprawdza też na nowo wersję skryptu (np. po jego aktualizacji).
-  $('#sync-teraz').onclick = () => { Opisy.wersjaSprawdzona = false; Streszczenia.wersjaSprawdzona = false; kliknijSync(); };
+  $('#sync-teraz').onclick = () => { Synchronizacja.sprawdzWersje = true; kliknijSync(); };
+  $('#tytuly-wszystkie').onchange = (e) => {
+    Opisy.ustawWszystkieStrony(e.target.checked);
+    pokazStanSync();
+    if (e.target.checked) Opisy.uzupelnij();
+  };
+  $('#kopiuj-diagnostyke').onclick = () => kopiuj(Bledy.tekst(), 'Skopiowano – wklej w rozmowę z Claude.');
+  $('#alarm-od-nowa').onclick = () => {
+    if (!confirm('Zacząć od pustej listy w tej przeglądarce? Uszkodzone dane zostają odłożone (nic nie jest kasowane), a wpisy wrócą z Google Drive przy synchronizacji albo z kopii zapasowej.')) return;
+    Magazyn.zacznijOdNowa();
+    pokazAlarm();
+    pokazWidok(aktualnyWidok);
+    Synchronizacja.synchronizuj();
+  };
   window.addEventListener('potok-stan-synchronizacji', pokazStanSync);
   // Po pobraniu zmian z innego urządzenia – odśwież to, co widać (poza formularzem).
   window.addEventListener('potok-odswiez', () => { if (aktualnyWidok !== 'dodaj') pokazWidok(aktualnyWidok); });
@@ -560,7 +615,10 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#plik-kopia').onchange = async (e) => {
     const plik = e.target.files[0];
     if (!plik) return;
-    try { komunikat(`Przywrócono ${Magazyn.przywrocKopie(await plik.text())} brakujących wpisów.`); }
+    try {
+      const { dodane, odrzucone } = Magazyn.przywrocKopie(await plik.text());
+      komunikat(`Przywrócono ${dodane} brakujących wpisów.` + (odrzucone ? ` Pominięto ${odrzucone} elementów, które nie są wpisami (odłożone, nie skasowane).` : ''));
+    }
     catch (err) { komunikat('Błąd kopii: ' + err.message); }
     e.target.value = '';
     pokazStanEksportu();
@@ -570,17 +628,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // w parametrach (?url=…&title=…&text=…), patrz share_target w manifeście.
   // Uwaga: Chrome ZASTĘPUJE parametry z adresu „action” (nasze udostepnij=1
   // znika), więc rozpoznajemy udostępnienie po samych title/text/url.
-  const par = new URLSearchParams(location.search);
-  if (['udostepnij', 'title', 'text', 'url'].some(p => par.has(p))) {
-    // Ślad ostatniego udostępnienia (tylko na tym urządzeniu) – do sprawdzania błędów.
-    localStorage.setItem(Magazyn.klucz + '.udostepnienie',
-      new Date().toLocaleString('pl-PL') + ' · ' + decodeURIComponent(location.search).slice(0, 300));
-    const tekst = par.get('text') || '';
-    const url = par.get('url') || (tekst.match(/https?:\/\/\S+/) || [''])[0];
-    const tytul = par.get('title') || tekst.replace(url, '').trim();
-    dodajRecznie(url, tytul, 'udostępnij');
-    history.replaceState(null, '', location.pathname);
-  }
+  // Błąd tutaj (np. zepsuty adres) nie może zatrzymać startu aplikacji.
+  try { obsluzUdostepnienie(); }
+  catch (e) { console.error('Udostępnienie', e); komunikat('Nie udało się dodać udostępnionego linku: ' + e.message); }
+  finally { if (location.search) history.replaceState(null, '', location.pathname); }
 
   // Service worker = działanie offline. Działa tylko z adresu http(s),
   // przy otwarciu pliku z dysku (file://) po prostu go pomijamy.
@@ -592,8 +643,38 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#wersja').textContent = 'Wersja aplikacji: ' + WERSJA_APLIKACJI +
     (slad ? ' · Ostatnie udostępnienie: ' + slad : ' · Jeszcze nic nie udostępniono do Potoku na tym urządzeniu.');
 
+  window.addEventListener('potok-blad', pokazDiagnostyke);
   // Na start zawsze „Dodaj” (decyzja z 15.11.2026: najczęściej otwieram Potok, żeby coś zapisać).
-  pokazWidok('dodaj');
+  // Wyjątek: uszkodzone dane – wtedy przegląd z czerwonym paskiem.
+  Magazyn.wczytaj();   // odczyt danych wykrywa uszkodzenie (i odkłada surową kopię)
+  pokazWidok(Magazyn.uszkodzone() ? 'przeglad' : 'dodaj');
   Synchronizacja.start();
   pokazStanSync();
 });
+
+/**
+ * „Udostępnij → Potok” na Androidzie: system otwiera aplikację z adresem
+ * w parametrach (?url=…&title=…&text=…), patrz share_target w manifeście.
+ * Uwaga: Chrome ZASTĘPUJE parametry z adresu „action”, więc rozpoznajemy
+ * udostępnienie po samych title/text/url.
+ * Taki adres może otworzyć każda strona, dlatego: limity długości, adres
+ * sprawdzany przy zapisie i widoczny komunikat z „Cofnij”.
+ */
+function obsluzUdostepnienie() {
+  const par = new URLSearchParams(location.search);   // wartości już zdekodowane
+  if (!['udostepnij', 'title', 'text', 'url'].some(p => par.has(p))) return;
+  const LIMIT = 2000;
+  const tekst = (par.get('text') || '').slice(0, LIMIT);
+  const url = (par.get('url') || (tekst.match(/https?:\/\/\S+/) || [''])[0]).slice(0, LIMIT);
+  const tytul = (par.get('title') || tekst.replace(url, '').trim()).slice(0, LIMIT);
+  // Ślad ostatniego udostępnienia (tylko na tym urządzeniu) – do sprawdzania błędów.
+  localStorage.setItem(Magazyn.klucz + '.udostepnienie',
+    new Date().toLocaleString('pl-PL') + ' · ' + [tytul, url].filter(Boolean).join(' · ').slice(0, 300));
+  const ids = dodajRecznie(url, tytul, 'udostępnij');
+  if (!ids.length) return komunikat('Ten link już jest w Potoku.');
+  const w = Magazyn.wczytaj().find(x => x.id === ids[0]);
+  komunikat('Dodano z udostępnienia: ' + (w ? w.tytul : '').slice(0, 80), {
+    etykieta: 'Cofnij (do Archiwum)',
+    akcja: () => { Magazyn.zmienStatus(ids[0], 'archiwum'); komunikat('Przeniesiono do Archiwum.'); pokazWidok(aktualnyWidok); },
+  });
+}

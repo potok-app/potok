@@ -1,12 +1,17 @@
 <!doctype html>
 <!-- Potok – skrzynka linków. Strona główna aplikacji.
-     Kolejność skryptów ma znaczenie: magazyn → zip → import → eksport → app. -->
+     Kolejność skryptów ma znaczenie: bledy → scal → magazyn → zip → import → eksport → … → app. -->
 <html lang="pl">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Potok</title>
   <meta name="theme-color" content="#2b5d8a">
+  <!-- Druga linia obrony (audyt 16.11.2026): tylko własne skrypty i style,
+       połączenia tylko ze skryptem Google. GitHub Pages nie pozwala ustawić
+       nagłówków, więc polityka jest tutaj. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src 'self' https://script.google.com https://script.googleusercontent.com; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <meta name="referrer" content="no-referrer">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="ikona.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styl.css">
@@ -17,6 +22,12 @@
       <h1 title="Dodaj">Potok <small id="znak-urzadzenia"></small></h1>
       <!-- Stan synchronizacji z Google Drive; kliknięcie = synchronizuj / zaloguj -->
       <button id="stan-sync" class="stan-sync" hidden></button>
+    </div>
+    <!-- Dane w tej przeglądarce nie dają się odczytać: nic nie zapisujemy, dopóki nie zdecydujesz. -->
+    <div id="alarm" class="alarm" hidden>
+      <p><b>Dane Potoku w tej przeglądarce są uszkodzone.</b> Żeby nic nie zginęło, Potok niczego tu teraz nie zapisuje.
+        Uszkodzone dane są odłożone pod kluczem <code id="alarm-kopia"></code>.</p>
+      <button id="alarm-od-nowa">Zacznij od pustej listy (wpisy wrócą z Google Drive / kopii)</button>
     </div>
     <nav>
       <button data-widok="przeglad">Przegląd</button>
@@ -105,13 +116,12 @@
               </div></li>
             <li>Otwórz <a href="https://script.google.com/home/projects/create" target="_blank" rel="noopener">script.google.com → Nowy projekt</a>. Usuń to, co jest w edytorze, wklej skrypt i zapisz (Ctrl+S).</li>
             <li>Kliknij <b>Wdróż → Nowe wdrożenie</b>. Przy „Wybierz typ” kliknij zębatkę → <b>Aplikacja internetowa</b>. Ustaw: <b>Wykonuj jako: Ja</b>, <b>Kto ma dostęp: Każdy</b> → <b>Wdróż</b>.</li>
-            <li>Google poprosi o zgodę: <b>Autoryzuj dostęp</b> → wybierz konto. Gdy zobaczysz „Google nie zweryfikował tej aplikacji”, kliknij <b>Zaawansowane → Przejdź do projektu (niebezpieczne)</b> → <b>Zezwól</b>. To Twój własny skrypt, więc to normalne. Google ostrzeże, że skrypt prosi o dostęp do Drive. Tak działa każdy skrypt Google, a ten używa tylko folderu „Potok”.</li>
+            <li>Google poprosi o zgodę: <b>Autoryzuj dostęp</b> → wybierz konto. Gdy zobaczysz „Google nie zweryfikował tej aplikacji”, kliknij <b>Zaawansowane → Przejdź do projektu (niebezpieczne)</b> → <b>Zezwól</b>. To Twój własny skrypt, więc to normalne. Google ostrzeże, że skrypt prosi o dostęp do całego Drive: tak Google opisuje każdy taki skrypt, a ten kod używa tylko folderu „Potok”.</li>
             <li>Skopiuj <b>Adres URL aplikacji internetowej</b> (kończy się na <code>/exec</code>) i wklej tutaj:
               <input id="skrypt-adres" type="url" placeholder="https://script.google.com/macros/s/…/exec">
               <button id="polacz-skrypt">Połącz</button></li>
           </ol>
           <p class="pomoc">Na drugim urządzeniu nie powtarzasz tych kroków. Wklejasz w to samo pole <b>kod połączenia</b> z pierwszego urządzenia.</p>
-          <button id="polacz-drive" hidden>Połącz przez Google Cloud</button>
         </div>
 
         <!-- Po połączeniu -->
@@ -119,9 +129,11 @@
           <button id="sync-teraz">Synchronizuj teraz</button>
           <p id="stan-opisow" class="pomoc"></p>
           <p id="stan-streszczen-ai" class="pomoc"></p>
-          <!-- Pokazywane, gdy skrypt Google jest starszy niż aplikacja (wersja < 4: bez streszczeń AI). -->
+          <label class="przelacznik pomoc"><input id="tytuly-wszystkie" type="checkbox">
+            <span>Pobieraj tytuły także stron innych niż YouTube. Skrypt Google otwiera wtedy te linki ze swoich serwerów. Wpisy 🏠, komputer służbowy i linki „potwierdź / wypisz się” są zawsze pomijane.</span></label>
+          <!-- Pokazywane, gdy skrypt Google jest starszy niż aplikacja (wersja < 10). -->
           <div id="skrypt-aktualizacja" class="ramka" hidden>
-            <p><b>Zaktualizuj skrypt Google do wersji 9</b>, żeby Potok robił streszczenia AI: przyciskiem „Streść teraz” przy wpisie albo sam co godzinę (także gdy komputer jest wyłączony). Adres i klucz zostają te same. Jeśli masz już wersję 4–8 z kluczem Gemini, wystarczą kroki 1, 2, 5 i 6.</p>
+            <p><b>Zaktualizuj skrypt Google do wersji 10</b>: codzienna kopia pliku na Dysku, odrzucanie zapisów, które gubiłyby wpisy, bezpieczniejsze łączenie danych z kilku urządzeń, a także streszczenia AI („Streść teraz” przy wpisie albo same co godzinę). Adres i klucz zostają te same. Jeśli masz już wersję 4–9 z kluczem Gemini, wystarczą kroki 1, 2, 5 i 6.</p>
             <ol class="kroki">
               <li><button id="pokaz-nowy-skrypt">Pokaż nowy skrypt</button>
                 <div id="nowy-skrypt-pole" hidden>
@@ -138,6 +150,13 @@
           </div>
           <button id="kopiuj-kod">Kopiuj kod połączenia dla innego urządzenia</button>
           <p class="pomoc">Kod połączenia zawiera tajny klucz. Wklejaj go tylko na swoich urządzeniach, nikomu go nie wysyłaj.</p>
+          <details class="pomoc"><summary>Co zrobić, gdy kod połączenia wyciekł?</summary>
+            <ol class="kroki">
+              <li>Na script.google.com w swoim skrypcie zmień wartość <code>KLUCZ</code> na nowy, dowolny ciąg 32 liter i cyfr. Zapisz i wdróż (<b>Zarządzaj wdrożeniami → ✏️ → Nowa wersja</b>).</li>
+              <li>Na każdym swoim urządzeniu: <b>Odłącz to urządzenie</b>, potem wklej adres skryptu z nowym kluczem w postaci <code>adres#klucz</code> i <b>Połącz</b>.</li>
+              <li>Stary kod przestaje działać od razu. Wpisy zostają na Drive i na urządzeniach.</li>
+            </ol>
+          </details>
           <button id="rozlacz">Odłącz to urządzenie</button>
           <p class="pomoc">Odłączenie nie usuwa żadnych wpisów: ani tutaj, ani na Drive.</p>
         </div>
@@ -160,6 +179,14 @@
         <p class="pomoc">Bez połączenia z Google Drive dane są tylko w tej przeglądarce. Wtedy rób kopię co jakiś czas.</p>
       </div>
 
+      <!-- Ostatnie błędy aplikacji – do wklejenia Claude'owi. Bez treści wpisów i bez klucza. -->
+      <div id="diagnostyka" class="karta" hidden>
+        <h2>Diagnostyka</h2>
+        <p class="pomoc">Ostatnie błędy aplikacji na tym urządzeniu. Nie zawierają treści wpisów ani klucza.</p>
+        <div id="diagnostyka-lista"></div>
+        <button id="kopiuj-diagnostyke">Kopiuj</button>
+      </div>
+
       <!-- Numer wersji: pozwala sprawdzić, czy telefon pobrał najnowszą. -->
       <p id="wersja" class="pomoc"></p>
     </section>
@@ -167,6 +194,8 @@
 
   <div id="komunikat" hidden></div>
 
+  <script src="js/bledy.js"></script>
+  <script src="js/scal.js"></script>
   <script src="js/magazyn.js"></script>
   <script src="js/zip.js"></script>
   <script src="js/import.js"></script>
@@ -175,8 +204,6 @@
   <script src="js/synchronizacja.js"></script>
   <script src="js/opisy.js"></script>
   <script src="js/streszczenia.js"></script>
-  <!-- Logowanie Google (tylko do synchronizacji; bez internetu aplikacja działa dalej) -->
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="js/app.js"></script>
 </body>
 </html>

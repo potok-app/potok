@@ -141,8 +141,9 @@ test('magazyn: nie ma żadnej funkcji usuwania wpisu', () => {
 test('magazyn: ponowny import nie dubluje wpisów', () => {
   czysto();
   const w = Import.zTekstu('Obczaić https://a.pl\nStreścić https://b.pl', 'test');
-  rowne(Magazyn.dodaj(w), { dodane: 2, pominiete: 0 });
-  rowne(Magazyn.dodaj(Import.zTekstu('Obczaić https://a.pl\nStreścić https://b.pl', 'test')), { dodane: 0, pominiete: 2 });
+  const r1 = Magazyn.dodaj(w), r2 = Magazyn.dodaj(Import.zTekstu('Obczaić https://a.pl\nStreścić https://b.pl', 'test'));
+  rowne([r1.dodane, r1.pominiete, r1.ids.length], [2, 0, 2]);
+  rowne([r2.dodane, r2.pominiete, r2.ids.length], [0, 2, 0]);
   rowne(Magazyn.wczytaj().length, 2);
 });
 test('magazyn: nowy wpis trafia do skrzynki', () => {
@@ -174,7 +175,7 @@ test('magazyn: przywrócenie kopii dokłada brakujące, niczego nie nadpisuje', 
   const id = Magazyn.wczytaj()[0].id;
   Magazyn.zmienStatus(id, 'archiwum');
   Magazyn.dodaj([{ url: 'https://b.pl', tytul: 'b', tekst: 'b' }]);
-  rowne(Magazyn.przywrocKopie(kopia), 0);
+  rowne(Magazyn.przywrocKopie(kopia), { dodane: 0, odrzucone: 0 });
   rowne(Magazyn.wczytaj().length, 2);
   rowne(Magazyn.wczytaj()[0].status, 'archiwum', 'stara kopia nadpisała nowszy stan:');
 });
@@ -350,12 +351,12 @@ test('opisy: dopisane „Streścić” itp. nie blokuje pobrania tytułu, Twój 
     prawda(!Import.tylkoOznaczenia(t), t);
 });
 test('opisy: po tytuł z YouTube idzie sam film, bez miksu/listy', () => {
-  const film = 'https://www.youtube.com/watch?v=chrT06BDlhM';
-  rowne(Opisy.adresDoOpisu('https://www.youtube.com/watch?v=chrT06BDlhM&list=RDSdPkjh6X_iw&index=4'), film);
-  rowne(Opisy.adresDoOpisu('https://youtu.be/chrT06BDlhM?si=abc'), film);
-  rowne(Opisy.adresDoOpisu('https://m.youtube.com/watch?v=chrT06BDlhM&t=30'), film);
-  rowne(Opisy.adresDoOpisu('https://music.youtube.com/watch?v=chrT06BDlhM&list=X'), film);
-  rowne(Opisy.adresDoOpisu('https://www.youtube.com/shorts/chrT06BDlhM'), film);
+  const film = 'https://www.youtube.com/watch?v=abc123XYZ_0';
+  rowne(Opisy.adresDoOpisu('https://www.youtube.com/watch?v=abc123XYZ_0&list=RDtestowaLista&index=4'), film);
+  rowne(Opisy.adresDoOpisu('https://youtu.be/abc123XYZ_0?si=abc'), film);
+  rowne(Opisy.adresDoOpisu('https://m.youtube.com/watch?v=abc123XYZ_0&t=30'), film);
+  rowne(Opisy.adresDoOpisu('https://music.youtube.com/watch?v=abc123XYZ_0&list=X'), film);
+  rowne(Opisy.adresDoOpisu('https://www.youtube.com/shorts/abc123XYZ_0'), film);
   rowne(Opisy.adresDoOpisu('https://example.com/a?b=1'), 'https://example.com/a?b=1');
 });
 test('opisy: tytuł i autor zapisane, tekst i „zmieniono” bez zmian', () => {

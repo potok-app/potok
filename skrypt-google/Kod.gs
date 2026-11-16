@@ -3,7 +3,7 @@
 
    Co robi: trzyma wszystkie wpisy w pliku „Potok.json” w folderze „Potok”
    na Twoim Drive. Odpowiada tylko na zapytania z właściwym kluczem.
-   Nie rusza żadnych innych plików. Kod jest krótki – możesz go przeczytać.
+   Nie rusza żadnych plików poza folderem „Potok”. Kod możesz przeczytać.
    Od wersji 2 umie też odczytać tytuł i autora linku (np. filmu z YouTube).
    Wersja 3: mówi, co poszło nie tak przy tytule, i ma funkcję sprawdzTytuly
    do uruchomienia w edytorze (daje skryptowi zgodę na łączenie ze stronami).
@@ -24,16 +24,28 @@
    nie mieszczą się w jednym darmowym zapytaniu, a dzielenie ich na części
    to za dużo kodu do utrzymania (decyzja z 15.11.2026). Zamiast tego „Wklej
    tekst” w aplikacji: wklejona transkrypcja albo tekst artykułu (akcja
-   „streszczTeraz” z polem „tekst”) jest streszczana jak każdy inny materiał. */
+   „streszczTeraz” z polem „tekst”) jest streszczana jak każdy inny materiał.
+   Wersja 9: Pobieracz YT dostaje każdy film czekający na streszczenie.
+   Wersja 10 (po audycie bezpieczeństwa 16.11.2026):
+   - odrzuca zapis, który zgubiłby choć jeden wpis albo nie jest poprawnym plikiem,
+   - przed pierwszą zmianą każdego dnia robi kopię Potok.json:
+     Potok/kopie/Potok-RRRR-MM-DD.json (kopii nie usuwa),
+   - akcja „synchronizuj”: łączy dane urządzenia z plikiem pod blokadą
+     (dwa urządzenia naraz nie zgubią sobie zmian) – ten sam kod łączenia
+     co w aplikacji (scalWpisy na końcu pliku),
+   - pamięta plik po identyfikatorze i nie pisze do pliku w koszu,
+   - tytuły linków tylko ze stron HTML, przycięte do 300 znaków. */
 
 const KLUCZ = 'WSTAW_KLUCZ';   // aplikacja wstawia tu Twój tajny klucz
-const WERSJA_SKRYPTU = 9;
+const WERSJA_SKRYPTU = 10;
+const WERSJA_DANYCH = 1;               // format pliku Potok.json
+const LIMIT_TRESCI = 20 * 1024 * 1024; // 20 MB – dużo więcej niż potrzeba
 
-/** Zapytanie z aplikacji: { klucz, akcja: 'pobierz' | 'zapisz' | 'opis' | 'wersja' | 'streszczenia' | 'streszczTeraz' | 'zapiszGotowe' | 'doTranskrypcji', tresc?, url?, od?, id?, rodzaj? } */
+/** Zapytanie z aplikacji: { klucz, akcja: 'pobierz' | 'zapisz' | 'synchronizuj' | 'opis' | 'wersja' | 'streszczenia' | 'streszczTeraz' | 'zapiszGotowe' | 'doTranskrypcji', tresc?, url?, od?, id?, rodzaj? } */
 function doPost(e) {
   let dane;
   try { dane = JSON.parse(e.postData.contents); } catch (x) { return wynik({ blad: 'złe dane' }); }
-  if (dane.klucz !== KLUCZ) return wynik({ blad: 'zły klucz' });
+  if (!dane || dane.klucz !== KLUCZ) return wynik({ blad: 'zły klucz' });
   if (dane.akcja === 'wersja') return wynik({ wersja: WERSJA_SKRYPTU });
   if (dane.akcja === 'opis') return wynik(opisStrony(dane.url));
   if (dane.akcja === 'streszczenia') return wynik(odczytajStreszczenia(dane.od));
@@ -41,17 +53,89 @@ function doPost(e) {
   if (dane.akcja === 'zapiszGotowe') return wynik(zapiszGotowe(dane));
   if (dane.akcja === 'doTranskrypcji') return wynik(doTranskrypcji());
 
-  // Blokada: dwa urządzenia naraz nie nadpiszą sobie pliku w połowie zapisu.
+  if (['pobierz', 'zapisz', 'synchronizuj'].indexOf(dane.akcja) < 0) return wynik({ blad: 'nieznana akcja' });
+
+  // Blokada: dwa urządzenia naraz nie nadpiszą sobie pliku.
   const blokada = LockService.getScriptLock();
   blokada.waitLock(20000);
   try {
     const plik = plikPotoku();
-    if (dane.akcja === 'pobierz') return wynik({ tresc: plik.getBlob().getDataAsString('UTF-8') });
-    if (dane.akcja === 'zapisz') { plik.setContent(dane.tresc); return wynik({ ok: true }); }
-    return wynik({ blad: 'nieznana akcja' });
+    if (plik.blad) return wynik(plik);
+    const obecna = plik.getBlob().getDataAsString('UTF-8');
+    if (dane.akcja === 'pobierz') return wynik({ tresc: obecna });
+
+    const nowa = sprawdzTresc(dane.tresc);
+    if (nowa.blad) return wynik(nowa);
+    const stara = sprawdzTresc(obecna);
+    if (!stara.blad && Number(stara.dane.wersja) > WERSJA_DANYCH) return wynik({ blad: 'plik zapisała nowsza wersja Potoku – zaktualizuj skrypt' });
+    const stareWpisy = stara.blad ? [] : stara.dane.wpisy;   // uszkodzony plik trafi do kopii
+
+    if (dane.akcja === 'zapisz') {
+      const brak = brakujace(stareWpisy, nowa.dane.wpisy);
+      if (brak) return wynik({ blad: 'ubyło wpisów (' + brak + ') – zapis odrzucony, plik bez zmian' });
+      zrobKopie(plik, obecna, !!stara.blad);
+      plik.setContent(dane.tresc);
+      return wynik({ ok: true });
+    }
+
+    // synchronizuj: łączymy tutaj, pod blokadą.
+    const s = scalWpisy(nowa.dane.wpisy, stareWpisy);
+    if (!s.inneNizZdalne && !stara.blad) return wynik({ tresc: obecna });
+    const tresc = JSON.stringify({ wersja: WERSJA_DANYCH, zapisano: new Date().toISOString(), wpisy: s.wpisy }, null, 1);
+    zrobKopie(plik, obecna, !!stara.blad);
+    plik.setContent(tresc);
+    return wynik({ tresc: tresc });
   } finally {
     blokada.releaseLock();
   }
+}
+
+/** Treść pliku: tekst, poprawny JSON z listą „wpisy”, nie za duży. */
+function sprawdzTresc(tresc) {
+  if (typeof tresc !== 'string') return { blad: 'brak treści' };
+  if (tresc.length > LIMIT_TRESCI) return { blad: 'za duża treść' };
+  let d;
+  try { d = JSON.parse(tresc); } catch (x) { return { blad: 'treść to nie JSON' }; }
+  if (!d || typeof d !== 'object' || !Array.isArray(d.wpisy)) return { blad: 'brak listy wpisów' };
+  return { dane: d };
+}
+
+/** Ile wpisów (po id) jest w starym pliku, a nie ma ich w nowej treści. */
+function brakujace(stare, nowe) {
+  const ids = {};
+  nowe.forEach(function (w) { if (w && typeof w.id === 'string') ids[w.id] = true; });
+  return stare.filter(function (w) { return w && typeof w.id === 'string' && !ids[w.id]; }).length;
+}
+
+/** Kopia przed pierwszą zmianą dnia (i zawsze przed nadpisaniem uszkodzonego pliku). Kopii nie usuwamy. */
+function zrobKopie(plik, tresc, uszkodzony) {
+  if (!tresc) return;
+  const folder = podfolder(folderPotoku(plik), 'kopie');
+  const dzien = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Europe/Warsaw', 'yyyy-MM-dd');
+  const nazwa = uszkodzony ? 'Potok-uszkodzony-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json' : 'Potok-' + dzien + '.json';
+  if (folder.getFilesByName(nazwa).hasNext()) return;
+  folder.createFile(nazwa, tresc, 'application/json');
+}
+
+/** Folder, w którym leży Potok.json. */
+function folderPotoku(plik) {
+  const rodzice = plik.getParents();
+  return rodzice.hasNext() ? rodzice.next() : DriveApp.getRootFolder();
+}
+
+/** Podfolder o danej nazwie (pomija kosz), tworzony przy pierwszym użyciu. */
+function podfolder(rodzic, nazwa) {
+  const foldery = rodzic.getFoldersByName(nazwa);
+  while (foldery.hasNext()) { const f = foldery.next(); if (!f.isTrashed()) return f; }
+  return rodzic.createFolder(nazwa);
+}
+
+/** Wpisy z Potok.json (do streszczeń). Plik w koszu → błąd. */
+function wpisyPotoku() {
+  const plik = plikPotoku();
+  if (plik.blad) throw new Error(plik.blad);
+  const tresc = plik.getBlob().getDataAsString('UTF-8');
+  return tresc && tresc.trim() ? JSON.parse(tresc).wpisy || [] : [];
 }
 
 /** Otwarcie adresu w przeglądarce – tylko sprawdzenie, że skrypt działa. */
@@ -65,15 +149,19 @@ function doGet() {
 function opisStrony(url) {
   const host = ((String(url || '').match(/^https?:\/\/([^\/?#]+)/i) || [])[1] || '').toLowerCase();
   if (!host) return { blad: 'zły adres' };
+  const przytnij = function (t) { return String(t || '').trim().slice(0, 300); };
   try {
     if (/(^|\.)(youtube\.com|youtu\.be)$/.test(host)) {
       const odp = UrlFetchApp.fetch('https://www.youtube.com/oembed?format=json&url=' + encodeURIComponent(url), { muteHttpExceptions: true });
       if (odp.getResponseCode() !== 200) return { tytul: '', problem: 'YouTube: kod ' + odp.getResponseCode() };
       const o = JSON.parse(odp.getContentText());
-      return { tytul: o.title || '', autor: o.author_name || '' };
+      return { tytul: przytnij(o.title), autor: przytnij(o.author_name) };
     }
     const odp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true, headers: { 'Accept-Language': 'pl,en' } });
     if (odp.getResponseCode() !== 200) return { tytul: '', problem: 'strona: kod ' + odp.getResponseCode() };
+    const naglowki = odp.getHeaders() || {};
+    const typ = String(naglowki['Content-Type'] || naglowki['content-type'] || '');
+    if (typ && !/html/i.test(typ)) return { tytul: '', problem: 'to nie strona (' + typ.split(';')[0] + ')' };
     const html = odp.getContentText().slice(0, 300000);
     const meta = nazwa => {
       const znacznik = (html.match(new RegExp('<meta[^>]+(?:property|name)=["\']' + nazwa + '["\'][^>]*>', 'i')) || [])[0] || '';
@@ -82,7 +170,7 @@ function opisStrony(url) {
     };
     let tytul = meta('og:title') || meta('twitter:title') || encje((html.match(/<title[^>]*>([^<]*)</i) || [])[1] || '');
     if (/^(facebook|instagram|log in|zaloguj się|log into facebook)/i.test(tytul)) tytul = '';
-    return { tytul: tytul.trim(), autor: (meta('author') || meta('og:site_name')).trim() };
+    return { tytul: przytnij(tytul), autor: przytnij(meta('author') || meta('og:site_name')) };
   } catch (x) {
     return { tytul: '', problem: String(x && x.message || x) };
   }
@@ -157,12 +245,11 @@ function ustawienie(nazwa) {
   return v !== null && v !== '' ? String(v).trim() : USTAWIENIA_DOMYSLNE[nazwa];
 }
 
-/** Folder „Potok/Streszczenia” – tworzony przy pierwszym użyciu. */
+/** Folder „Potok/Streszczenia” (obok Potok.json) – tworzony przy pierwszym użyciu. */
 function folderStreszczen() {
-  const foldery = DriveApp.getFoldersByName('Potok');
-  const potok = foldery.hasNext() ? foldery.next() : DriveApp.createFolder('Potok');
-  const pod = potok.getFoldersByName('Streszczenia');
-  return pod.hasNext() ? pod.next() : potok.createFolder('Streszczenia');
+  const plik = plikPotoku();
+  if (plik.blad) throw new Error(plik.blad);
+  return podfolder(folderPotoku(plik), 'Streszczenia');
 }
 
 function nazwaPliku(id) { return String(id).replace(/[^\w.-]/g, '_') + '.json'; }
@@ -433,8 +520,7 @@ function zapiszGotowe(dane) {
  * niż z samego filmu, a długość filmu nie ma znaczenia).
  */
 function doTranskrypcji() {
-  const tresc = plikPotoku().getBlob().getDataAsString('UTF-8');
-  const wpisy = tresc && tresc.trim() ? JSON.parse(tresc).wpisy || [] : [];
+  const wpisy = wpisyPotoku();
   const folder = folderStreszczen();
   const filmy = [];
   for (const w of wpisy) {
@@ -474,8 +560,7 @@ function streszczajCoGodzine() {
   const start = Date.now();
   const licznik = { ok: 0, 'ręcznie': 0, 'błąd': 0, czeka: 0 };
   try {
-    const tresc = plikPotoku().getBlob().getDataAsString('UTF-8');
-    const wpisy = tresc && tresc.trim() ? JSON.parse(tresc).wpisy || [] : [];
+    const wpisy = wpisyPotoku();
     const folder = folderStreszczen();
     const kolejka = doStreszczenia(wpisy, folder);
     const naRaz = Math.max(1, parseInt(ustawienie('NA_RAZ'), 10) || 6);
@@ -539,14 +624,113 @@ function encje(t) {
     .replace(/\s+/g, ' ');
 }
 
-/** Folder „Potok” i plik „Potok.json” – tworzone przy pierwszym użyciu. */
+/** Plik „Potok.json”. Za pierwszym razem szukamy go po nazwie (pomijając kosz)
+    albo tworzymy, potem pamiętamy jego identyfikator. Plik w koszu → błąd,
+    a nie nowy pusty plik (żeby nic nie zginęło). */
 function plikPotoku() {
+  const ustawienia = PropertiesService.getScriptProperties();
+  const id = ustawienia.getProperty('plikId');
+  if (id) {
+    let plik = null;
+    try { plik = DriveApp.getFileById(id); } catch (x) { plik = null; }
+    if (plik && plik.isTrashed()) return { blad: 'Plik Potok/Potok.json jest w koszu Google Drive. Przywróć go z kosza.' };
+    if (plik) return plik;
+  }
+  let folder = null;
   const foldery = DriveApp.getFoldersByName('Potok');
-  const folder = foldery.hasNext() ? foldery.next() : DriveApp.createFolder('Potok');
+  while (foldery.hasNext()) { const f = foldery.next(); if (!f.isTrashed()) { folder = f; break; } }
+  if (!folder) folder = DriveApp.createFolder('Potok');
+  let plik = null;
   const pliki = folder.getFilesByName('Potok.json');
-  return pliki.hasNext() ? pliki.next() : folder.createFile('Potok.json', '{"wersja":1,"wpisy":[]}', 'application/json');
+  while (pliki.hasNext()) { const p = pliki.next(); if (!p.isTrashed()) { plik = p; break; } }
+  if (!plik) plik = folder.createFile('Potok.json', '{"wersja":1,"wpisy":[]}', 'application/json');
+  ustawienia.setProperty('plikId', plik.getId());
+  return plik;
 }
 
 function wynik(obiekt) {
   return ContentService.createTextOutput(JSON.stringify(obiekt)).setMimeType(ContentService.MimeType.JSON);
 }
+
+// ----- scal.js (kopia z aplikacji – nie edytuj tutaj, tylko js/scal.js i `npm run skrypt`) -----
+/* =====================================================================
+   scal.js – łączenie wpisów z dwóch miejsc: tego urządzenia i pliku na Drive.
+
+   Ten sam kod działa w aplikacji i w skrypcie Google (skrypt-google/Kod.gs
+   ma jego dokładną kopię między znacznikami „scal.js”). Po zmianie tutaj
+   uruchom:  npm run skrypt  – przepisze kopię w Kod.gs i js/skrypt-google.js.
+   Test (test-skryptu.js) pilnuje, żeby obie kopie były identyczne.
+
+   Dlatego ten plik nie korzysta z niczego innego z aplikacji.
+
+   Zasady:
+    - wpis, który jest tylko po jednej stronie, zostaje (nic nie ginie),
+    - wpis po obu stronach: wygrywa wersja zmieniona później („zmieniono”),
+      a przy równym czasie obie strony wybierają to samo (porównanie treści),
+    - historie zmian z obu stron są sklejane – historia nie ginie,
+    - status przy różnicy: ostatnia decyzja w sklejonej historii,
+      bo zegar jednego urządzenia może się spieszyć,
+    - 🏠 (prywatne) ma własny czas zmiany i nie przepada przez decyzję
+      podjętą na drugim urządzeniu; tak samo pobrany tytuł,
+    - wpis bez poprawnego identyfikatora (uszkodzony) zostaje bez zmian.
+   ===================================================================== */
+
+/** Kiedy wpis zmienił się ostatnio (tekst daty ISO; porównywany jak tekst). */
+function czasZmianyWpisu(w) {
+  const hist = Array.isArray(w.historia) ? w.historia : [];
+  const h = hist[hist.length - 1];
+  return String(w.zmieniono || (h && h.data) || w.dodano || '');
+}
+
+/**
+ * Łączy wpisy: lokalne (to urządzenie) + zdalne (plik na Drive).
+ * Zwraca { wpisy, inneNizZdalne } – inneNizZdalne = trzeba zapisać wynik na Drive.
+ */
+function scalWpisy(lokalne, zdalne) {
+  const wynik = new Map();
+  const bezId = [];   // uszkodzone wpisy – zostają, nic nie ginie
+  const poprawny = w => w && typeof w === 'object' && typeof w.id === 'string';
+  for (const w of zdalne) { if (poprawny(w)) wynik.set(w.id, w); else bezId.push(w); }
+  for (const l of lokalne) {
+    if (!poprawny(l)) { bezId.push(l); continue; }
+    const z = wynik.get(l.id);
+    if (!z) { wynik.set(l.id, l); continue; }
+    const cl = czasZmianyWpisu(l), cz = czasZmianyWpisu(z);
+    let nowszy = cl > cz ? l : cl < cz ? z : (JSON.stringify(l) >= JSON.stringify(z) ? l : z);
+    const starszy = nowszy === l ? z : l;
+    // Tytuł pobrany z internetu na jednym urządzeniu nie ginie przez
+    // decyzję podjętą na drugim (opis nie zmienia „zmieniono”).
+    if (!nowszy.opisPobrany && starszy.opisPobrany)
+      nowszy = Object.assign({}, nowszy, { tytul: starszy.tytul, autor: starszy.autor, opisPobrany: starszy.opisPobrany });
+    // Sklejenie historii (bez powtórzeń), posortowane po dacie.
+    const widziane = new Set();
+    const historia = [].concat(Array.isArray(z.historia) ? z.historia : [], Array.isArray(l.historia) ? l.historia : [])
+      .filter(h => {
+        if (!h || typeof h !== 'object') return false;
+        const k = h.data + '|' + h.z + '|' + h.na;
+        if (widziane.has(k)) return false;
+        widziane.add(k);
+        return true;
+      })
+      .sort((a, b) => String(a.data).localeCompare(String(b.data)));
+    const scalony = Object.assign({}, nowszy, { historia });
+    // Różne statusy: decyduje ostatnia decyzja w historii z obu urządzeń.
+    if (l.status !== z.status && historia.length && historia[historia.length - 1].na)
+      scalony.status = historia[historia.length - 1].na;
+    // 🏠 – wygrywa późniejsza zmiana samego znaczka.
+    const pl = String(l.prywatneZmieniono || ''), pz = String(z.prywatneZmieniono || '');
+    if (pl || pz) {
+      const zrodlo = pl >= pz ? l : z;
+      if (typeof zrodlo.prywatne === 'boolean') scalony.prywatne = zrodlo.prywatne;
+      scalony.prywatneZmieniono = zrodlo.prywatneZmieniono;
+    }
+    wynik.set(l.id, scalony);
+  }
+  const porzadek = (a, b) => ((a.kolejnosc || 0) - (b.kolejnosc || 0)) || String(a.dodano).localeCompare(String(b.dodano));
+  const bezPowtorzen = bezId.filter((w, i) => bezId.findIndex(x => JSON.stringify(x) === JSON.stringify(w)) === i);
+  const wpisy = Array.from(wynik.values()).sort(porzadek).concat(bezPowtorzen);
+  const zdalnePoprawne = zdalne.filter(poprawny).sort(porzadek).concat(zdalne.filter(w => !poprawny(w)));
+  const inneNizZdalne = JSON.stringify(wpisy) !== JSON.stringify(zdalnePoprawne);
+  return { wpisy, inneNizZdalne };
+}
+// ----- koniec scal.js -----

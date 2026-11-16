@@ -38,6 +38,20 @@ const Eksport = {
     return { tekst: www.map(w => w.url).join('\n') + '\n', www, reszta };
   },
 
+  /**
+   * Tekst do .md: tytuły z cudzych stron mogą zawierać HTML (np. <img>),
+   * który Obsidian by wyświetlił i pobrał obrazek z obcego serwera.
+   * Zamieniamy < > na encje, nowe linie na spacje.
+   */
+  bezpiecznyTekst(t) {
+    return String(t || '').replace(/[\r\n]+/g, ' ').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  },
+
+  /** Adres w linku Markdown: nawiasy i spacje psułyby link – kodujemy je. */
+  adresMd(url) {
+    return url.replace(/[()<> ]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'));
+  },
+
   /** Cały Potok jako jeden plik Markdown, pogrupowany po statusach. */
   markdown(wpisy) {
     const linie = [
@@ -54,16 +68,19 @@ const Eksport = {
       if (!grupa.length) continue;
       linie.push(`## ${nazwa} (${grupa.length})`, '');
       for (const w of grupa) {
-        const tytul = (w.tytul || '').replace(/[\[\]]/g, '');
-        const glowna = w.url ? `[${tytul}](${w.url})` : tytul;
+        const tytul = this.bezpiecznyTekst(w.tytul).replace(/[\[\]]/g, '');
+        const adres = Magazyn.bezpiecznyAdres(w.url);
+        const glowna = adres ? `[${tytul}](${this.adresMd(adres)})` : tytul;
+        const autor = w.autor ? ` · ${this.bezpiecznyTekst(w.autor)}` : '';
         const dom = Import.czyPrywatne(w) ? ' · 🏠 prywatne' : '';
-        linie.push(`- ${glowna} · dodano ${this.dzien(w.dodano)}${dom}`);
+        linie.push(`- ${glowna}${autor} · dodano ${this.dzien(w.dodano)}${dom}`);
         // Oryginalny wpis dopisujemy, jeśli różni się od tytułu.
-        if (w.tekst && w.tekst !== w.tytul) linie.push(`  - oryginalnie: ${w.tekst}`);
+        if (w.tekst && w.tekst !== w.tytul) linie.push(`  - oryginalnie: ${this.bezpiecznyTekst(w.tekst)}`);
         // Streszczenia AI (jeśli są) – żeby trafiły do Obsidiana razem z linkiem.
+        // Tekst od AI może zawierać HTML z cudzej strony – zabezpieczony jak tytuł.
         const s = typeof Streszczenia !== 'undefined' && Streszczenia.dla(w.id);
-        if (s && s.krotkie) linie.push(`  - streszczenie: ${s.krotkie.tekst.replace(/\s*\n\s*/g, ' ')}`);
-        if (s && s.szczegolowe) linie.push('  - szczegółowe streszczenie:', ...s.szczegolowe.tekst.split('\n').map(l => '    ' + l));
+        if (s && s.krotkie) linie.push(`  - streszczenie: ${this.bezpiecznyTekst(s.krotkie.tekst)}`);
+        if (s && s.szczegolowe) linie.push('  - szczegółowe streszczenie:', ...String(s.szczegolowe.tekst).split('\n').map(l => '    ' + l.replace(/</g, '&lt;').replace(/>/g, '&gt;')));
       }
       linie.push('');
     }

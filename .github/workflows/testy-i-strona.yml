@@ -1,5 +1,6 @@
 # Przy każdej zmianie: najpierw testy, a jeśli przejdą – publikacja strony.
 # Jeśli testy nie przejdą, strona zostaje w poprzedniej (działającej) wersji.
+# Publikowane są tylko pliki aplikacji (bez testów, notatek i narzędzi).
 name: Testy i strona
 
 on:
@@ -7,10 +8,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Domyślnie tylko odczyt; uprawnienia do publikacji ma wyłącznie zadanie „strona”.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: strona
@@ -19,13 +19,16 @@ concurrency:
 jobs:
   testy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm install
+      - run: npm ci
       - run: npx playwright install --with-deps chromium
+      - run: node testy/test-spojnosci.js
       - run: node testy/uruchom-testy.js
       - run: node testy/test-skryptu.js
       - run: node testy/e2e.js
@@ -35,14 +38,23 @@ jobs:
   strona:
     needs: testy
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.publikacja.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - name: Zbierz pliki strony
+        run: |
+          mkdir _strona
+          cp index.html styl.css sw.js manifest.webmanifest ikona.svg _strona/
+          cp -r js _strona/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: _strona
       - id: publikacja
         uses: actions/deploy-pages@v4
