@@ -1,5 +1,10 @@
 # Potok – postęp prac i decyzje
 
+## 16.11.2026 (4) – po przenosinach (aplikacja v30)
+- Skrypt v11 wklejony; komputer i Pobieracz YT mają własne klucze. Telefon dostaje kod z listy Urządzenia.
+- Pole nazwy nowego urządzenia: było małe, w białym stylu przeglądarki i trudno było w nie trafić („nic się nie wpisuje”). Teraz szerokie, w kolorach aplikacji, z podpowiedzią „kliknij tutaj i wpisz”. Test e2e-drive wpisuje nazwę jak człowiek (klik + klawiatura).
+- Kod połączenia połamany na linie albo z „%23” zamiast „#” (po przesłaniu na telefon) jest naprawiany przy wklejeniu.
+
 ## 16.11.2026 (3) – przenosiny na osobny adres (B-05)
 - Repozytorium przeniesione do osobnej organizacji: **github.com/potok-app/potok**. Adres aplikacji: **https://potok-app.github.io/potok/** (strona działa, publikacja przez GitHub Actions jak dotąd).
 - Stary adres https://cyberia-studio-projects.github.io/potok/ to teraz osobne, małe repozytorium ze stroną, która czyści z przeglądarki stare dane Potoku i przekierowuje pod nowy adres (sprawdzone: przekierowuje).
