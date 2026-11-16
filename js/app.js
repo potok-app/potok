@@ -24,7 +24,7 @@ function esc(t) {
 }
 
 // Numer wersji aplikacji – podbijaj razem z WERSJA w sw.js.
-const WERSJA_APLIKACJI = 28;
+const WERSJA_APLIKACJI = 29;
 
 // Krótki komunikat na dole ekranu. Opcjonalnie z przyciskiem (np. „Cofnij”).
 function komunikat(tekst, przycisk = null, czas = 3500) {
@@ -290,7 +290,7 @@ function pokazWidok(nazwa) {
   if (nazwa === 'przeglad') pokazPrzeglad();
   if (nazwa === 'listy') pokazListy();
   if (nazwa === 'zadania') pokazZadania();
-  if (nazwa === 'eksport') { pokazStanEksportu(); pokazStanSync(); }
+  if (nazwa === 'eksport') { pokazStanEksportu(); pokazStanSync(); pokazUrzadzenia(); }
   pokazAlarm();   // po odczycie danych – wtedy wiadomo, czy są uszkodzone
 }
 
@@ -309,11 +309,33 @@ function pokazStanSync() {
     : 'Nie połączono. Zrób raz poniższe kroki (ok. 5 minut).';
   $('#sync-konfiguracja').hidden = polaczone;
   $('#sync-polaczone').hidden = !polaczone;
-  $('#kopiuj-kod').hidden = !Synchronizacja.skrypt();
+  $('#kopiuj-kod').hidden = !Synchronizacja.kodPolaczenia();
+  const s = Synchronizacja.skrypt();
+  // Lista urządzeń: skrypt 11+, własny klucz, nie na komputerze służbowym.
+  $('#urzadzenia').hidden = !(s && s.wlasny && Synchronizacja.zapamietanaWersja() >= 11 && Magazyn.urzadzenie() !== 'sluzbowe');
   $('#skrypt-aktualizacja').hidden = !Synchronizacja.skryptDoAktualizacji();
   $('#stan-opisow').textContent = Synchronizacja.skrypt() ? Opisy.podsumowanie(Magazyn.wczytaj()) : '';
   $('#stan-streszczen-ai').textContent = Synchronizacja.skrypt() ? Streszczenia.podsumowanie(Magazyn.wczytaj()) : '';
   $('#tytuly-wszystkie').checked = Opisy.wszystkieStrony();
+}
+
+// Lista urządzeń w Pliki (skrypt 11+). Pytamy skrypt przy każdym wejściu w Pliki.
+async function pokazUrzadzenia() {
+  if ($('#urzadzenia').hidden) return;
+  const ul = $('#lista-urzadzen');
+  ul.textContent = 'Wczytuję listę urządzeń…';
+  const data = t => (t ? new Date(t).toLocaleString('pl-PL', { day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '–');
+  try {
+    const { urzadzenia, ja } = await Synchronizacja.urzadzenia();
+    ul.innerHTML = urzadzenia.map(u => `<li${u.odlaczono ? ' class="odlaczone"' : ''}>
+      <b>${esc(u.nazwa || 'bez nazwy')}</b>${u.sluzbowe ? ' 💼' : ''}${u.id === ja ? ' <i>(to urządzenie)</i>' : ''}
+      <br><span class="pomoc">dodane ${esc(data(u.dodano))} · ostatnio ${esc(data(u.ostatnio))}</span>
+      ${u.odlaczono ? `<br><span class="pomoc">odłączone ${esc(data(u.odlaczono))}</span>`
+        : u.id === ja ? '' : `<br><button data-odlacz="${esc(u.id)}" data-nazwa="${esc(u.nazwa || 'bez nazwy')}">Odłącz i wyczyść</button>`}
+    </li>`).join('') || '<li>Brak urządzeń.</li>';
+  } catch (e) {
+    ul.textContent = 'Nie udało się wczytać listy urządzeń: ' + e.message;
+  }
 }
 
 // Klucz dla nowego skryptu – tworzony raz i pamiętany, aż do połączenia.
@@ -494,7 +516,10 @@ document.addEventListener('DOMContentLoaded', () => {
     $('#skrypt-pole').hidden = false;
   };
   $('#pokaz-nowy-skrypt').onclick = () => {
-    $('#nowy-skrypt-tekst').value = SKRYPT_GOOGLE.replace('WSTAW_KLUCZ', Synchronizacja.skrypt().klucz);
+    // Urządzenie z własnym kluczem nie zna klucza głównego – skrypt 11+ trzyma go
+    // we Właściwościach skryptu, więc w nowym kodzie zostaje znacznik.
+    const s = Synchronizacja.skrypt();
+    $('#nowy-skrypt-tekst').value = SKRYPT_GOOGLE.replace('WSTAW_KLUCZ', s.wlasny ? 'WSTAW_KLUCZ' : s.klucz);
     $('#nowy-skrypt-pole').hidden = false;
   };
   $('#kopiuj-nowy-skrypt').onclick = () => kopiuj($('#nowy-skrypt-tekst').value, 'Skopiowano nowy skrypt – wklej go w swoim projekcie na script.google.com.');
@@ -517,6 +542,31 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#rozlacz').onclick = () => {
     if (!confirm('Odłączyć to urządzenie od Google Drive? Wpisy zostaną tutaj i na Drive.')) return;
     Synchronizacja.rozlacz();
+  };
+  // Urządzenia: odłączanie, nowy kod, zmiana klucza głównego.
+  $('#lista-urzadzen').onclick = async (e) => {
+    const b = e.target.closest('[data-odlacz]');
+    if (!b) return;
+    if (!confirm(`Odłączyć „${b.dataset.nazwa}”? Straci dostęp do Google Drive od razu, a przy najbliższym otwarciu Potoku wyczyści z przeglądarki wszystkie wpisy i kod połączenia. Na Dysku i na innych urządzeniach nic nie zginie. Tego nie da się cofnąć – urządzenie wróci tylko z nowym kodem.`)) return;
+    b.disabled = true;
+    try { await Synchronizacja.odlacz(b.dataset.odlacz); komunikat(`Odłączono: ${b.dataset.nazwa}.`); }
+    catch (err) { komunikat('Nie udało się odłączyć: ' + err.message); }
+    pokazUrzadzenia();
+  };
+  $('#utworz-kod').onclick = async () => {
+    try {
+      $('#nowy-kod').value = await Synchronizacja.noweUrzadzenie($('#nazwa-nowego').value.trim() || 'Nowe urządzenie', $('#nowe-sluzbowe').checked);
+      $('#nowy-kod-pole').hidden = false;
+      $('#nazwa-nowego').value = '';
+      $('#nowe-sluzbowe').checked = false;
+      pokazUrzadzenia();
+    } catch (err) { komunikat('Nie udało się utworzyć kodu: ' + err.message); }
+  };
+  $('#kopiuj-nowy-kod').onclick = () => kopiuj($('#nowy-kod').value, 'Skopiowano kod połączenia – wklej go na nowym urządzeniu w „Pliki → Google Drive”.');
+  $('#zmien-klucz-glowny').onclick = async () => {
+    if (!confirm('Zmienić klucz główny? Stary przestanie działać od razu. Urządzenia z listy działają dalej.')) return;
+    try { await Synchronizacja.zmienKluczGlowny(); komunikat('Klucz główny zmieniony.'); }
+    catch (err) { komunikat('Nie udało się: ' + err.message); }
   };
   // „Synchronizuj teraz” sprawdza też na nowo wersję skryptu (np. po jego aktualizacji).
   $('#sync-teraz').onclick = () => { Synchronizacja.sprawdzWersje = true; kliknijSync(); };
@@ -644,6 +694,11 @@ document.addEventListener('DOMContentLoaded', () => {
     (slad ? ' · Ostatnie udostępnienie: ' + slad : ' · Jeszcze nic nie udostępniono do Potoku na tym urządzeniu.');
 
   window.addEventListener('potok-blad', pokazDiagnostyke);
+  // Po zdalnym odłączeniu (Synchronizacja.wyczyscUrzadzenie) – wyjaśnienie, co się stało.
+  if (location.hash === '#odlaczone') {
+    history.replaceState(null, '', location.pathname);
+    komunikat('To urządzenie zostało odłączone od Potoku. Wpisy i kod połączenia usunięto z tej przeglądarki (na Google Drive są dalej).', null, 30000);
+  }
   // Na start zawsze „Dodaj” (decyzja z 15.11.2026: najczęściej otwieram Potok, żeby coś zapisać).
   // Wyjątek: uszkodzone dane – wtedy przegląd z czerwonym paskiem.
   Magazyn.wczytaj();   // odczyt danych wykrywa uszkodzenie (i odkłada surową kopię)

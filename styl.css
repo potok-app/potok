@@ -102,3 +102,9 @@ label.zaznacz input { width: 20px; height: 20px; margin: 0; }
 .alarm code { word-break: break-all; }
 #diagnostyka-lista { white-space: pre-wrap; font: 12px/1.4 monospace; max-height: 200px; overflow: auto; }
 .przelacznik { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0; }
+
+/* Pliki → Urządzenia (skrypt Google 11+) */
+.lista-urzadzen { list-style: none; padding: 0; }
+.lista-urzadzen li { padding: .5em 0; border-bottom: 1px solid #ddd; }
+.lista-urzadzen li.odlaczone { opacity: .6; }
+#nowy-kod { width: 100%; }

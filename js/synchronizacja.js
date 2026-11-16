@@ -14,6 +14,10 @@
          łączy dane pod blokadą, więc dwa urządzenia naraz nie zgubią
          sobie zmian,
        • starszy skrypt: pobierz → połącz → wyślij (jak dawniej),
+   - skrypt w wersji 11+: każde urządzenie ma własny klucz. Urządzenie
+     połączone kodem z kluczem głównym samo prosi o własny klucz (zarejestruj)
+     i zapomina klucz główny. Odłączone (z listy w Pliki na innym urządzeniu)
+     dostaje od skryptu „odlaczone” i czyści z przeglądarki wszystko o Potoku,
    - synchronizacja rusza sama: przy otwarciu aplikacji, chwilę po każdej
      zmianie i gdy wraca internet. Bez internetu zmiany czekają w kolejce
      („do wysłania”) – nic nie trzeba pamiętać.
@@ -23,7 +27,7 @@
    ===================================================================== */
 
 // Najnowsza wersja skryptu Google, jaką zna ta aplikacja (skrypt-google/Kod.gs).
-const NAJNOWSZY_SKRYPT = 10;
+const NAJNOWSZY_SKRYPT = 11;
 // Wersja formatu danych (pole „wersja” w Potok.json). Nowsza = zapisana przez
 // nowszą aplikację – wtedy ta (stara) wersja nic nie wysyła.
 const WERSJA_DANYCH = 1;
@@ -75,6 +79,7 @@ const Synchronizacja = {
   skrypt() {
     try {
       const s = JSON.parse(localStorage.getItem(Magazyn.klucz + '.skrypt') || 'null');
+      // wlasny: true = klucz tylko tego urządzenia (skrypt 11+), id – jego numer na liście.
       return s && typeof s.url === 'string' && typeof s.klucz === 'string' ? s : null;
     } catch { return null; }
   },
@@ -93,7 +98,9 @@ const Synchronizacja = {
     let [url, k] = String(kodLubAdres || '').trim().split('#');
     k = k || klucz;
     if (!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(url) || !k || !/^[\w-]{8,200}$/.test(k)) return false;
-    localStorage.setItem(Magazyn.klucz + '.skrypt', JSON.stringify({ url, klucz: k }));
+    // Klucz urządzenia ze skryptu 11+ to 64 znaki 0-9a-f (klucz główny wygląda inaczej).
+    const wlasny = /^[0-9a-f]{64}$/.test(k);
+    localStorage.setItem(Magazyn.klucz + '.skrypt', JSON.stringify(wlasny ? { url, klucz: k, wlasny } : { url, klucz: k }));
     localStorage.removeItem(Magazyn.klucz + '.wersjaSkryptu');
     this.sprawdzWersje = true;
     return true;
@@ -106,18 +113,72 @@ const Synchronizacja = {
     this.ustawStan('niepolaczone');
   },
 
-  /** Kod połączenia do wklejenia na innym urządzeniu (zawiera tajny klucz!). */
+  /** Kod połączenia do wklejenia na innym urządzeniu (zawiera tajny klucz!).
+      Urządzenie z własnym kluczem nie oddaje go – nowe dostaje własny (noweUrzadzenie). */
   kodPolaczenia() {
     const s = this.skrypt();
-    return s ? s.url + '#' + s.klucz : '';
+    return s && !s.wlasny ? s.url + '#' + s.klucz : '';
+  },
+
+  /* ---------------- Urządzenia (skrypt 11+) ------------------------ */
+
+  /** Nazwa tego urządzenia na liście, np. „Telefon · Chrome” albo „Komputer służbowy · Edge”. */
+  nazwaUrzadzenia() {
+    const ua = navigator.userAgent;
+    const rodzaj = /Android|iPhone|iPad|Mobile/.test(ua) ? 'Telefon' : 'Komputer';
+    const przegladarka = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'przeglądarka';
+    return rodzaj + (Magazyn.urzadzenie() === 'sluzbowe' ? ' służbowy' : '') + ' · ' + przegladarka;
+  },
+
+  /** Urządzenie z kluczem głównym prosi o własny klucz i zapomina główny. */
+  async zarejestruj() {
+    const s = this.skrypt();
+    const { klucz, id } = await this.doSkryptu({ akcja: 'zarejestruj' });
+    if (!/^[0-9a-f]{64}$/.test(klucz || '')) throw new Error('Skrypt Google nie dał klucza urządzenia');
+    localStorage.setItem(Magazyn.klucz + '.skrypt', JSON.stringify({ url: s.url, klucz, wlasny: true, id }));
+  },
+
+  /** Lista urządzeń: { urzadzenia: [{ id, nazwa, sluzbowe, dodano, ostatnio, odlaczono }], ja }. */
+  urzadzenia() { return this.doSkryptu({ akcja: 'urzadzenia' }); },
+
+  /** Kod połączenia dla nowego urządzenia (z jego własnym kluczem). */
+  async noweUrzadzenie(nazwa, sluzbowe) {
+    const { klucz } = await this.doSkryptu({ akcja: 'noweUrzadzenie', nazwaNowego: nazwa, sluzboweNowe: !!sluzbowe });
+    return this.skrypt().url + '#' + klucz;
+  },
+
+  /** Odłącza urządzenie: traci dostęp od razu, a przy następnym połączeniu czyści się. */
+  odlacz(id) { return this.doSkryptu({ akcja: 'odlacz', id }); },
+
+  /** Nowy klucz główny w skrypcie (stary przestaje działać, urządzenia działają dalej). */
+  zmienKluczGlowny() { return this.doSkryptu({ akcja: 'zmienKluczGlowny' }); },
+
+  /**
+   * To urządzenie zostało odłączone: usuwamy z przeglądarki wszystko o Potoku
+   * (wpisy, kod połączenia, ustawienia, kopię offline) i otwieramy czystą stronę.
+   * Wpisy są dalej na Google Drive i na innych urządzeniach.
+   */
+  async wyczyscUrzadzenie() {
+    if (this.czyszczenie) return;
+    this.czyszczenie = true;
+    try { if (window.caches) for (const n of await caches.keys()) await caches.delete(n); } catch { /* trudno */ }
+    try { if (navigator.serviceWorker) for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); } catch { /* trudno */ }
+    for (const k of Object.keys(localStorage)) if (k.startsWith('potok')) localStorage.removeItem(k);
+    try { sessionStorage.clear(); } catch { /* trudno */ }
+    // Do czasu przeładowania nic już nie zapisze danych z powrotem.
+    Storage.prototype.setItem = function () {};
+    location.replace(location.pathname + '#odlaczone');
+    location.reload();
   },
 
   /** Zapytanie do skryptu. Bez nagłówków – przeglądarka nie robi wtedy dodatkowego sprawdzenia (CORS). */
   async doSkryptu(dane) {
     const s = this.skrypt();
-    const odp = await fetch(s.url, { method: 'POST', body: JSON.stringify({ ...dane, klucz: s.klucz }) });
+    // nazwa i typ: skrypt 11+ pokazuje je na liście urządzeń (starszy je pomija).
+    const odp = await fetch(s.url, { method: 'POST', body: JSON.stringify({ ...dane, klucz: s.klucz, nazwa: this.nazwaUrzadzenia(), typ: Magazyn.urzadzenie() }) });
     if (!odp.ok) throw new Error('Skrypt Google odpowiedział błędem ' + odp.status);
     const wynik = await odp.json();
+    if (wynik.odlaczone === true) { await this.wyczyscUrzadzenie(); throw new Error('To urządzenie zostało odłączone od Potoku.'); }
     if (wynik.blad) throw new Error('Skrypt Google: ' + wynik.blad);
     return wynik;
   },
@@ -159,6 +220,7 @@ const Synchronizacja = {
     this.ustawStan('trwa');
     try {
       const wersja = await this.wersjaSkryptu();
+      if (wersja >= 11 && !this.skrypt().wlasny) await this.zarejestruj();
       // Licznik zmian przed wysłaniem: jeśli coś zmienisz w trakcie,
       // znacznik „do wysłania” zostaje i synchronizacja ruszy jeszcze raz.
       const licznik = Magazyn.licznikZmian();

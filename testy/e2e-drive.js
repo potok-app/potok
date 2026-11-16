@@ -11,7 +11,7 @@
    Scenariusz przechodzi dwa razy:
    - „stary skrypt” (wersje 1–9: pobierz → połącz → zapisz) – udawany tutaj,
      tak jak działa skrypt na Drive, dopóki nie zostanie zaktualizowany,
-   - „skrypt v10” – PRAWDZIWY skrypt-google/Kod.gs uruchomiony w Node
+   - „skrypt v11” – PRAWDZIWY skrypt-google/Kod.gs uruchomiony w Node
      (testy/udawany-google.js); łączenie danych po stronie skryptu.
    (Dawny sposób przez Google Cloud usunięty 16.11.2026.)
 
@@ -34,7 +34,7 @@ async function obsluzSkrypt(route) {
   const z = route.request();
   const odp = obj => route.fulfill({ status: 200, headers: { ...CORS, 'Content-Type': 'application/json' }, body: JSON.stringify(obj) });
   if (z.method() !== 'POST') return odp({ potok: 'skrypt działa' });
-  // Skrypt v10: odpowiada prawdziwy Kod.gs.
+  // Skrypt v11: odpowiada prawdziwy Kod.gs.
   if (drive.google) return route.fulfill({ status: 200, headers: { ...CORS, 'Content-Type': 'application/json' }, body: drive.google.doPost({ postData: { contents: z.postData() } }).tekst });
   const dane = JSON.parse(z.postData());
   if (dane.klucz !== 'TAJNY-KLUCZ') return odp({ blad: 'zły klucz' });
@@ -95,9 +95,9 @@ const czekajNa = (s, wzor) => s.waitForFunction(w => new RegExp(w).test(document
 const plikNaDrive = () => JSON.parse(drive.google ? drive.google.plikJson().tresc : drive.skrypt);
 
 async function scenariusz(przegladarka, tryb) {
-  drive = { zapisy: 0, skrypt: '', wersjaSkryptu: 1, streszczenia: [], odczytyStreszczen: [], google: tryb === 'v10' ? nowyGoogle('TAJNY-KLUCZ') : null };
+  drive = { zapisy: 0, skrypt: '', wersjaSkryptu: 1, streszczenia: [], odczytyStreszczen: [], google: tryb === 'v11' ? nowyGoogle('TAJNY-KLUCZ') : null };
   if (drive.google) { const doPost = drive.google.doPost; drive.google.doPost = e => { drive.zapisy++; return doPost(e); }; }
-  console.log(`--- Tryb: ${tryb === 'v10' ? 'skrypt Google v10 (prawdziwy Kod.gs)' : 'stary skrypt Google (v1–9)'} ---`);
+  console.log(`--- Tryb: ${tryb === 'v11' ? 'skrypt Google v11 (prawdziwy Kod.gs)' : 'stary skrypt Google (v1–9)'} ---`);
 
   // 0. Komputer: połączenie – jak człowiek, przez ekran „Pliki”.
   const komp = await urzadzenie(przegladarka, {});
@@ -117,8 +117,24 @@ async function scenariusz(przegladarka, tryb) {
     await komp.s.click('#polacz-skrypt');
     await czekajNa(komp.s, /zapisane/);
     assert(!(await komp.s.isVisible('#sync-konfiguracja')), 'instrukcja widoczna po połączeniu');
-    kodPolaczenia = await komp.s.evaluate(() => Synchronizacja.kodPolaczenia());
-    assert.strictEqual(kodPolaczenia, ADRES_SKRYPTU + '#TAJNY-KLUCZ');
+    if (tryb === 'v11') {
+      // Skrypt 11: komputer dostał własny klucz i zapomniał klucz główny.
+      await komp.s.waitForFunction(() => Synchronizacja.skrypt().wlasny === true, null, { timeout: 10000 });
+      const s = await komp.s.evaluate(() => Synchronizacja.skrypt());
+      assert(/^[0-9a-f]{64}$/.test(s.klucz) && !JSON.stringify(await komp.s.evaluate(() => ({ ...localStorage }))).includes('TAJNY-KLUCZ'), 'klucz główny został w przeglądarce');
+      assert.strictEqual(await komp.s.evaluate(() => Synchronizacja.kodPolaczenia()), '', 'urządzenie oddaje swój klucz');
+      assert(!(await komp.s.isVisible('#kopiuj-kod')));
+      // Kod dla telefonu – z listy Urządzenia.
+      await komp.s.waitForSelector('#urzadzenia', { state: 'visible' });
+      await komp.s.fill('#nazwa-nowego', 'Telefon');
+      await komp.s.click('#utworz-kod');
+      await komp.s.waitForSelector('#nowy-kod-pole', { state: 'visible' });
+      kodPolaczenia = await komp.s.inputValue('#nowy-kod');
+      assert(kodPolaczenia.startsWith(ADRES_SKRYPTU + '#') && kodPolaczenia !== ADRES_SKRYPTU + '#' + s.klucz, 'zły kod dla nowego urządzenia');
+    } else {
+      kodPolaczenia = await komp.s.evaluate(() => Synchronizacja.kodPolaczenia());
+      assert.strictEqual(kodPolaczenia, ADRES_SKRYPTU + '#TAJNY-KLUCZ');
+    }
     console.log('0. Połączono przez ekran „Pliki” (skrypt + adres /exec).');
   }
 
@@ -197,8 +213,8 @@ async function scenariusz(przegladarka, tryb) {
     console.log('7. Zły klucz: czytelny błąd. 8. Odłączenie: wpisy zostają.');
   }
 
-  if (tryb === 'v10') {
-    // 9. Skrypt v10: brak prośby o aktualizację, kopia dzienna na Dysku, łączenie w skrypcie.
+  if (tryb === 'v11') {
+    // 9. Skrypt v11: brak prośby o aktualizację, kopia dzienna na Dysku, łączenie w skrypcie.
     await komp.s.click('nav [data-widok=eksport]');
     assert(!(await komp.s.isVisible('#skrypt-aktualizacja')), 'prośba o aktualizację przy najnowszym skrypcie');
     assert(drive.google.kopie().some(k => /^Potok-\d{4}-\d{2}-\d{2}\.json$/.test(k.nazwa)), 'brak kopii dziennej na Dysku');
@@ -211,7 +227,49 @@ async function scenariusz(przegladarka, tryb) {
     const ile = plikNaDrive().wpisy.length;
     assert.match(drive.google.zapytaj({ klucz: 'TAJNY-KLUCZ', akcja: 'zapisz', tresc: JSON.stringify({ wersja: 1, wpisy: [] }) }).blad, /ubyło/);
     assert.strictEqual(plikNaDrive().wpisy.length, ile);
-    console.log('9. Skrypt v10: bez prośby o aktualizację, kopia dzienna jest, zmiana wysłana jednym zapytaniem.');
+    console.log('9. Skrypt v11: bez prośby o aktualizację, kopia dzienna jest, zmiana wysłana jednym zapytaniem.');
+
+    // 11. Komputer służbowy: przyłączony kodem z listy, potem zdalnie odłączony i wyczyszczony.
+    await komp.s.fill('#nazwa-nowego', 'Komputer w pracy');
+    await komp.s.check('#nowe-sluzbowe');
+    await komp.s.click('#utworz-kod');
+    await komp.s.waitForFunction(k => document.querySelector('#nowy-kod').value !== k, kodPolaczenia);
+    const kodPraca = await komp.s.inputValue('#nowy-kod');
+    const praca = await urzadzenie(przegladarka, {});
+    await praca.s.click('nav [data-widok=eksport]');
+    await praca.s.click('[data-urzadzenie=sluzbowe]');
+    await praca.s.fill('#skrypt-adres', kodPraca);
+    await praca.s.click('#polacz-skrypt');
+    await czekajNa(praca.s, /zapisane/);
+    assert.strictEqual(await praca.s.evaluate(() => Magazyn.wczytaj().length), plikNaDrive().wpisy.length, 'komputer w pracy nie pobrał wpisów');
+    assert(!(await praca.s.isVisible('#urzadzenia')), 'komputer służbowy widzi listę urządzeń');
+    // Lista na komputerze domowym: telefon, komputer w pracy (💼) i ten komputer.
+    await komp.s.click('nav [data-widok=dodaj]');
+    await komp.s.click('nav [data-widok=eksport]');
+    await komp.s.waitForSelector('#lista-urzadzen [data-odlacz]');
+    const lista = await komp.s.textContent('#lista-urzadzen');
+    assert(/Telefon/.test(lista) && /Komputer w pracy 💼/.test(lista) && /to urządzenie/.test(lista), 'lista urządzeń niepełna: ' + lista);
+    komp.s.once('dialog', d => d.accept());
+    await komp.s.click('#lista-urzadzen [data-nazwa="Komputer w pracy"]');
+    await komp.s.waitForFunction(() => /odłączone/.test(document.querySelector('#lista-urzadzen').textContent));
+    // Komputer w pracy przy następnej synchronizacji czyści się sam.
+    await praca.s.click('#stan-sync');
+    await praca.s.waitForFunction(() => /zostało odłączone/.test(document.querySelector('#komunikat').textContent), null, { timeout: 10000 });
+    const zostalo = await praca.s.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('potok') && localStorage.getItem(k) && !/^potok\.v1(\.bledy)?$/.test(k)));
+    assert.deepStrictEqual(zostalo, [], 'po odłączeniu w przeglądarce zostały dane Potoku');
+    assert.strictEqual(await praca.s.evaluate(() => Magazyn.wczytaj().length), 0, 'po odłączeniu zostały wpisy');
+    assert.strictEqual(await praca.s.evaluate(() => Synchronizacja.skrypt()), null, 'po odłączeniu został kod połączenia');
+    assert(plikNaDrive().wpisy.length > 0, 'odłączenie ruszyło Dysk');
+    // Klucz główny: zmiana z komputera domowego – stary przestaje działać, komputer działa dalej.
+    komp.s.once('dialog', d => d.accept());
+    await komp.s.click('#urzadzenia summary');
+    await komp.s.click('#zmien-klucz-glowny');
+    await komp.s.waitForFunction(() => /Klucz główny zmieniony/.test(document.querySelector('#komunikat').textContent));
+    assert.deepStrictEqual(drive.google.zapytaj({ klucz: 'TAJNY-KLUCZ', akcja: 'wersja' }), { blad: 'zły klucz' });
+    await komp.s.click('#stan-sync'); await czekajNa(komp.s, /zapisane/);
+    assert.deepStrictEqual(praca.bledy, [], 'błędy JavaScript na komputerze w pracy');
+    await praca.k.close();
+    console.log('11. Komputer służbowy: osobny kod, „Odłącz i wyczyść” z domu – w jego przeglądarce nic nie zostało; klucz główny zmieniony.');
   } else {
 
     // 9. Tytuły linków: stary skrypt → Pliki proszą o aktualizację; nowy → tytuł i autor same się uzupełniają.
@@ -219,7 +277,7 @@ async function scenariusz(przegladarka, tryb) {
     await komp.s.waitForSelector('#skrypt-aktualizacja', { state: 'visible', timeout: 10000 });
     await komp.s.click('#pokaz-nowy-skrypt');
     const nowy = await komp.s.inputValue('#nowy-skrypt-tekst');
-    assert(nowy.includes("const KLUCZ = 'TAJNY-KLUCZ'") && nowy.includes('WERSJA_SKRYPTU = 10') && nowy.includes('function sprawdzTytuly') && nowy.includes('function wlaczStreszczenia') && nowy.includes('function scalWpisy'), 'nowy skrypt bez klucza, wersji albo scalania');
+    assert(nowy.includes("const KLUCZ = 'TAJNY-KLUCZ'") && nowy.includes('WERSJA_SKRYPTU = 11') && nowy.includes('function sprawdzTytuly') && nowy.includes('function wlaczStreszczenia') && nowy.includes('function scalWpisy'), 'nowy skrypt bez klucza, wersji albo scalania');
     // Skrypt w wersji 3 (tytuły działają, streszczeń brak) – ramka dalej prosi o wersję 4.
     drive.wersjaSkryptu = 3;
     // Tytuły innych stron niż YouTube – tylko po włączeniu (domyślnie wyłączone).
@@ -314,7 +372,7 @@ async function scenariusz(przegladarka, tryb) {
 (async () => {
   const przegladarka = await chromium.launch();
   await scenariusz(przegladarka, 'skrypt');
-  await scenariusz(przegladarka, 'v10');
+  await scenariusz(przegladarka, 'v11');
   console.log('E2E DRIVE OK');
   await przegladarka.close();
 })().catch(e => { console.error('E2E DRIVE BŁĄD:', e.message); process.exit(1); });

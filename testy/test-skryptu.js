@@ -62,13 +62,13 @@ assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'opis', url: 'https:/
 const strony = g.strony; g.strony = new Proxy({}, { get: () => { throw new Error('Nie masz uprawnień do wywołania UrlFetchApp.fetch'); } });
 assert.match(zapytaj(g, { klucz: 'tajny', akcja: 'opis', url: 'https://example.com/artykul' }).problem, /uprawnień/);
 g.strony = strony;
-assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'wersja' }), { wersja: 10 });
+assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'wersja' }), { wersja: 11 });
 assert.deepStrictEqual(zapytaj(g, { klucz: 'zly', akcja: 'wersja' }), { blad: 'zły klucz' });
 g.strony['https://www.youtube.com/oembed?format=json&url=' + encodeURIComponent('https://www.youtube.com/watch?v=jNQXAC9IVRw')] = { tekst: JSON.stringify({ title: 'Me at the zoo', author_name: 'jawed' }) };
 assert.strictEqual(g.sprawdzTytuly().tytul, 'Me at the zoo');
 assert.deepStrictEqual(zapytaj(g, { klucz: 'tajny', akcja: 'opis', url: 'file:///C:/x' }), { blad: 'zły adres' });
 assert.deepStrictEqual(zapytaj(g, { klucz: 'zly', akcja: 'opis', url: yt }), { blad: 'zły klucz' });
-assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 10);
+assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 11);
 
 // 4. Streszczenia (wersja 4).
 {
@@ -381,4 +381,57 @@ assert.strictEqual(JSON.parse(g.doGet().tekst).wersja, 10);
   assert.deepStrictEqual(g2.zapytaj({ klucz: 'tajny', akcja: 'opis', url: 'https://example.com/plik.pdf' }), { tytul: '', problem: 'to nie strona (application/pdf)' });
 }
 
-console.log('Skrypt Google: OK (klucz, tworzenie pliku, zapis/odczyt, polskie znaki, blokada, tytuły linków, bezpieczniki zapisu v10, kopie dzienne, synchronizuj, kosz, streszczenia: Gemini, YouTube, paywall, limity, Ollama, harmonogram)');
+// 6. Wersja 11: osobny klucz dla każdego urządzenia, odłączanie, klucz główny.
+{
+  const g = nowyGoogle('KLUCZ-GLOWNY-1234');
+  const tresc = wpisy => JSON.stringify({ wersja: 1, wpisy });
+  // Klucz główny trafia do Właściwości skryptu przy pierwszym zapytaniu.
+  assert.deepStrictEqual(g.zapytaj({ klucz: 'KLUCZ-GLOWNY-1234', akcja: 'wersja' }), { wersja: 11 });
+  assert.strictEqual(g.wlasciwosci.KLUCZ_GLOWNY, 'KLUCZ-GLOWNY-1234');
+  // Telefon i komputer służbowy dostają własne klucze.
+  const tel = g.zapytaj({ klucz: 'KLUCZ-GLOWNY-1234', akcja: 'zarejestruj', nazwa: 'Telefon', typ: 'prywatne' });
+  const pr = g.zapytaj({ klucz: 'KLUCZ-GLOWNY-1234', akcja: 'zarejestruj', nazwa: 'Komputer służbowy', typ: 'sluzbowe' });
+  assert.match(tel.klucz, /^[0-9a-f]{64}$/); assert.match(tel.id, /^[0-9a-f]{16}$/);
+  assert.notStrictEqual(tel.klucz, pr.klucz);
+  // W Właściwościach tylko skróty – żadnego klucza urządzenia.
+  assert(!JSON.stringify(g.wlasciwosci).includes(tel.klucz) && !JSON.stringify(g.wlasciwosci).includes(pr.klucz), 'klucz urządzenia zapisany jawnie');
+  // Własnym kluczem urządzenie robi wszystko, co dotąd.
+  assert.deepStrictEqual(g.zapytaj({ klucz: pr.klucz, akcja: 'zapisz', tresc: tresc([{ id: 'w1' }]) }), { ok: true });
+  assert.deepStrictEqual(JSON.parse(g.zapytaj({ klucz: tel.klucz, akcja: 'pobierz' }).tresc).wpisy.map(w => w.id), ['w1']);
+  assert.match(g.zapytaj({ klucz: tel.klucz, akcja: 'zarejestruj' }).blad, /ma już własny klucz/);
+  // Komputer służbowy nie zarządza urządzeniami (nawet gdy potem udaje prywatny).
+  assert.match(g.zapytaj({ klucz: pr.klucz, akcja: 'urzadzenia', typ: 'prywatne' }).blad, /służbowy/);
+  assert.match(g.zapytaj({ klucz: pr.klucz, akcja: 'odlacz', id: tel.id }).blad, /służbowy/);
+  // Lista z telefonu: nazwy, bez kluczy, „ja” wskazuje telefon.
+  const lista = g.zapytaj({ klucz: tel.klucz, akcja: 'urzadzenia' });
+  assert.strictEqual(lista.ja, tel.id);
+  assert.deepStrictEqual(lista.urzadzenia.map(u => [u.id, u.nazwa, u.sluzbowe, !!u.ostatnio]),
+    [[tel.id, 'Telefon', false, true], [pr.id, 'Komputer służbowy', true, true]]);
+  assert(!JSON.stringify(lista).includes(pr.klucz));
+  // Nowe urządzenie (np. Pobieracz) – kod tworzy telefon.
+  const nowe = g.zapytaj({ klucz: tel.klucz, akcja: 'noweUrzadzenie', nazwaNowego: 'Pobieracz YT' });
+  assert.deepStrictEqual(g.zapytaj({ klucz: nowe.klucz, akcja: 'wersja' }), { wersja: 11 });
+  // Odłączenie: służbowy nic już nie dostaje i słyszy „wyczyść się”.
+  assert.deepStrictEqual(g.zapytaj({ klucz: tel.klucz, akcja: 'odlacz', id: pr.id }), { ok: true });
+  for (const akcja of ['wersja', 'pobierz', 'synchronizuj', 'opis', 'streszczenia', 'doTranskrypcji'])
+    assert.deepStrictEqual(g.zapytaj({ klucz: pr.klucz, akcja, tresc: tresc([{ id: 'w1' }]) }),
+      { blad: 'to urządzenie zostało odłączone od Potoku', odlaczone: true }, akcja);
+  // Zapis „ostatnio widziane” nie cofa odłączenia (osobna właściwość).
+  assert(g.zapytaj({ klucz: tel.klucz, akcja: 'urzadzenia' }).urzadzenia.find(u => u.id === pr.id).odlaczono);
+  assert.match(g.zapytaj({ klucz: tel.klucz, akcja: 'odlacz', id: 'zzz' }).blad, /identyfikator/);
+  assert.match(g.zapytaj({ klucz: tel.klucz, akcja: 'odlacz', id: '0000000000000000' }).blad, /nie ma takiego/);
+  // Zmiana klucza głównego: stary przestaje działać, urządzenia działają dalej.
+  assert.match(g.zapytaj({ klucz: 'KLUCZ-GLOWNY-1234', akcja: 'zmienKluczGlowny' }).blad, /własny klucz/);
+  assert.deepStrictEqual(g.zapytaj({ klucz: tel.klucz, akcja: 'zmienKluczGlowny' }), { ok: true });
+  assert.deepStrictEqual(g.zapytaj({ klucz: 'KLUCZ-GLOWNY-1234', akcja: 'wersja' }), { blad: 'zły klucz' });
+  assert.deepStrictEqual(g.zapytaj({ klucz: tel.klucz, akcja: 'wersja' }), { wersja: 11 });
+  // Zapomniany klucz główny: funkcja w edytorze daje nowy.
+  const k = g.nowyKluczGlowny();
+  assert.deepStrictEqual(g.zapytaj({ klucz: k, akcja: 'wersja' }), { wersja: 11 });
+  // Skrypt bez wstawionego klucza (znacznik) nie wpuszcza nikogo z tym znacznikiem.
+  const g2 = nowyGoogle('WSTAW_KLUCZ');
+  assert.deepStrictEqual(g2.zapytaj({ klucz: 'WSTAW_KLUCZ', akcja: 'wersja' }), { blad: 'zły klucz' });
+  assert.deepStrictEqual(g2.zapytaj({ klucz: '', akcja: 'wersja' }), { blad: 'zły klucz' });
+}
+
+console.log('Skrypt Google: OK (klucz, tworzenie pliku, zapis/odczyt, polskie znaki, blokada, tytuły linków, bezpieczniki zapisu v10, kopie dzienne, synchronizuj, kosz, urządzenia i odłączanie v11, streszczenia: Gemini, YouTube, paywall, limity, Ollama, harmonogram)');

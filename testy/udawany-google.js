@@ -64,11 +64,18 @@ function nowyGoogle(klucz = 'tajny') {
     wyzwalacze: [],
     dziennik: [],
     Logger: { log: t => g.dziennik.push(String(t)) },
-    Utilities: { sleep: () => {}, formatDate: d => d.toISOString().slice(0, 10) },
+    Utilities: {
+      sleep: () => {}, formatDate: d => d.toISOString().slice(0, 10),
+      DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
+      // Jak w Google: bajty ze znakiem (-128…127).
+      computeDigest: (alg, tekst) => Array.from(require('crypto').createHash(alg).update(tekst, 'utf8').digest(), b => (b > 127 ? b - 256 : b)),
+      getUuid: () => require('crypto').randomUUID(),
+    },
     Session: { getScriptTimeZone: () => 'Europe/Warsaw' },
     PropertiesService: { getScriptProperties: () => ({
       getProperty: n => (n in g.wlasciwosci ? g.wlasciwosci[n] : null),
       setProperty: (n, v) => { g.wlasciwosci[n] = String(v); },
+      getProperties: () => Object.assign({}, g.wlasciwosci),
     }) },
     CacheService: { getScriptCache: () => ({ get: k => g.pamiec[k] || null, put: (k, v) => { g.pamiec[k] = v; }, remove: k => { delete g.pamiec[k]; } }) },
     ScriptApp: {

@@ -1,5 +1,12 @@
 # Potok – postęp prac i decyzje
 
+## 16.11.2026 (2) – osobny kod dla każdego urządzenia, zdalne „Odłącz i wyczyść” (aplikacja v29, skrypt Google v11)
+Prośba (B-10 z audytu): móc zdalnie odłączyć komputer służbowy i wyczyścić z jego przeglądarki wszystko o Potoku.
+- **Skrypt v11:** każde urządzenie ma własny klucz. We Właściwościach skryptu tylko skrót (SHA-256): `U_<skrót>` = nazwa, służbowe, dodano, ostatnio; `X_<skrót>` = data odłączenia (osobno, żeby zapis „ostatnio” go nie nadpisał). Klucz główny przenoszony do właściwości `KLUCZ_GLOWNY` i służy już tylko do przyłączania. Akcje: `zarejestruj`, `urzadzenia`, `noweUrzadzenie`, `odlacz`, `zmienKluczGlowny`; funkcja `nowyKluczGlowny` w edytorze (awaryjnie). Odłączone urządzenie na każde zapytanie dostaje `{ odlaczone: true }`. Komputer, który choć raz zgłosił się jako służbowy, nie zarządza urządzeniami.
+- **Aplikacja:** przy skrypcie 11 urządzenie z kluczem głównym samo dostaje własny klucz i zapomina główny. Pliki → **Urządzenia**: lista (nazwa, 💼, ostatnio widziane), „Utwórz kod połączenia” dla nowego urządzenia (też Pobieracza), „Odłącz i wyczyść”, „Zmień klucz główny”. Po `odlaczone` aplikacja usuwa pamięć podręczną, service workera, wszystkie klucze `potok*` z localStorage i sessionStorage, przeładowuje się i mówi, co się stało.
+- **B-09** zostaje jak jest (🏠 = tylko prywatnie; na służbowym wpis widoczny, link zablokowany). **B-05** czeka na decyzję (osobna darmowa organizacja GitHub, jeśli w cyberia-studio-projects będą inne strony).
+- **Testy:** test-skryptu (klucze, skróty zamiast kluczy, prawa służbowego, odłączenie dla każdej akcji, zmiana klucza głównego), e2e-drive krok 11 (komputer w pracy przyłączony kodem z listy, odłączony z domu, w jego przeglądarce nic nie zostaje).
+
 ## 16.11.2026 – poprawki po audycie bezpieczeństwa i architektury (wersja aplikacji 28, skrypt Google v10)
 Audyt (Fable 5.2) leży w plikach projektu, poza publicznym repo. Wdrożone (Opus 5.5):
 - **Dane nie mogą zniknąć (B-01, A-01, A-04):** `Magazyn.napraw` sprawdza i naprawia każdy wpis na wejściu (pamięć, kopia, Drive, formularz); nieznane pola zostają, elementy niebędące wpisami są odkładane w `potok.v1.odrzucone`. Nieczytelne dane → tryb tylko do odczytu, surowa kopia pod `potok.v1.uszkodzone.<data>`, czerwony pasek z decyzją. Bezpiecznik w `zapisz`: zapis, który zgubiłby wpis, jest wstrzymany; brak miejsca → czytelny błąd. W Pliki widać zajętość pamięci.

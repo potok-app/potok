@@ -121,7 +121,7 @@
               <input id="skrypt-adres" type="url" placeholder="https://script.google.com/macros/s/…/exec">
               <button id="polacz-skrypt">Połącz</button></li>
           </ol>
-          <p class="pomoc">Na drugim urządzeniu nie powtarzasz tych kroków. Wklejasz w to samo pole <b>kod połączenia</b> z pierwszego urządzenia.</p>
+          <p class="pomoc">Na drugim urządzeniu nie powtarzasz tych kroków. Wklejasz w to samo pole <b>kod połączenia</b>, który tworzysz na pierwszym urządzeniu (Pliki → Urządzenia → <b>Utwórz kod połączenia</b>).</p>
         </div>
 
         <!-- Po połączeniu -->
@@ -131,9 +131,9 @@
           <p id="stan-streszczen-ai" class="pomoc"></p>
           <label class="przelacznik pomoc"><input id="tytuly-wszystkie" type="checkbox">
             <span>Pobieraj tytuły także stron innych niż YouTube. Skrypt Google otwiera wtedy te linki ze swoich serwerów. Wpisy 🏠, komputer służbowy i linki „potwierdź / wypisz się” są zawsze pomijane.</span></label>
-          <!-- Pokazywane, gdy skrypt Google jest starszy niż aplikacja (wersja < 10). -->
+          <!-- Pokazywane, gdy skrypt Google jest starszy niż aplikacja (wersja < 11). -->
           <div id="skrypt-aktualizacja" class="ramka" hidden>
-            <p><b>Zaktualizuj skrypt Google do wersji 10</b>: codzienna kopia pliku na Dysku, odrzucanie zapisów, które gubiłyby wpisy, bezpieczniejsze łączenie danych z kilku urządzeń, a także streszczenia AI („Streść teraz” przy wpisie albo same co godzinę). Adres i klucz zostają te same. Jeśli masz już wersję 4–9 z kluczem Gemini, wystarczą kroki 1, 2, 5 i 6.</p>
+            <p><b>Zaktualizuj skrypt Google do wersji 11</b>: osobny kod dla każdego urządzenia i zdalne „Odłącz i wyczyść” (np. komputer służbowy), codzienna kopia pliku na Dysku, odrzucanie zapisów, które gubiłyby wpisy, bezpieczniejsze łączenie danych z kilku urządzeń, a także streszczenia AI („Streść teraz” przy wpisie albo same co godzinę). Adres zostaje ten sam. Jeśli masz już wersję 4–10 z kluczem Gemini, wystarczą kroki 1, 2, 5 i 6.</p>
             <ol class="kroki">
               <li><button id="pokaz-nowy-skrypt">Pokaż nowy skrypt</button>
                 <div id="nowy-skrypt-pole" hidden>
@@ -150,7 +150,29 @@
           </div>
           <button id="kopiuj-kod">Kopiuj kod połączenia dla innego urządzenia</button>
           <p class="pomoc">Kod połączenia zawiera tajny klucz. Wklejaj go tylko na swoich urządzeniach, nikomu go nie wysyłaj.</p>
+
+          <!-- Urządzenia (skrypt 11+): na urządzeniu z własnym kluczem, które nie jest służbowe. -->
+          <div id="urzadzenia" hidden>
+            <h3>Urządzenia</h3>
+            <p class="pomoc">Każde urządzenie ma własny kod połączenia. <b>Odłącz i wyczyść</b> odcina urządzenie od Dysku od razu. Gdy ktoś następnym razem otworzy na nim Potok z internetem, aplikacja usunie z tamtej przeglądarki wszystkie wpisy, kod połączenia i ustawienia. Na Dysku i na pozostałych urządzeniach wszystko zostaje.</p>
+            <ul id="lista-urzadzen" class="lista-urzadzen"></ul>
+            <label class="pomoc">Nowe urządzenie: <input id="nazwa-nowego" maxlength="60" placeholder="np. Komputer służbowy"></label>
+            <label class="przelacznik pomoc"><input id="nowe-sluzbowe" type="checkbox"><span>To komputer służbowy (nie będzie mógł odłączać innych urządzeń)</span></label>
+            <button id="utworz-kod">Utwórz kod połączenia</button>
+            <div id="nowy-kod-pole" hidden>
+              <input id="nowy-kod" readonly>
+              <button id="kopiuj-nowy-kod">Kopiuj kod</button>
+              <p class="pomoc">Ten kod jest dla jednego urządzenia. Wklej go tam w Pliki → Google Drive (pole z adresem) → <b>Połącz</b>.</p>
+            </div>
+            <details class="pomoc"><summary>Klucz główny</summary>
+              <p>Klucz z pierwszego połączenia (klucz główny) służy już tylko do przyłączania urządzeń – każde urządzenie przy pierwszej synchronizacji dostało własny. Jeśli klucz główny był kiedyś na komputerze, który odłączasz, zmień go. Urządzenia z listy działają dalej.</p>
+              <button id="zmien-klucz-glowny">Zmień klucz główny</button>
+              <p>Gdyby żadne urządzenie nie miało już dostępu: w edytorze skryptu uruchom funkcję <b>nowyKluczGlowny</b>. Nowy klucz pojawi się w „Dzienniku wykonania”. Kod połączenia to adres <code>/exec</code> + <code>#</code> + ten klucz.</p>
+            </details>
+          </div>
+
           <details class="pomoc"><summary>Co zrobić, gdy kod połączenia wyciekł?</summary>
+            <p>Skrypt w wersji 11: na liście <b>Urządzenia</b> kliknij <b>Odłącz i wyczyść</b> przy tym urządzeniu, a potem <b>Zmień klucz główny</b>. Przy starszym skrypcie:</p>
             <ol class="kroki">
               <li>Na script.google.com w swoim skrypcie zmień wartość <code>KLUCZ</code> na nowy, dowolny ciąg 32 liter i cyfr. Zapisz i wdróż (<b>Zarządzaj wdrożeniami → ✏️ → Nowa wersja</b>).</li>
               <li>Na każdym swoim urządzeniu: <b>Odłącz to urządzenie</b>, potem wklej adres skryptu z nowym kluczem w postaci <code>adres#klucz</code> i <b>Połącz</b>.</li>

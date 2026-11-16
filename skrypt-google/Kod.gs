@@ -34,18 +34,30 @@
      (dwa urządzenia naraz nie zgubią sobie zmian) – ten sam kod łączenia
      co w aplikacji (scalWpisy na końcu pliku),
    - pamięta plik po identyfikatorze i nie pisze do pliku w koszu,
-   - tytuły linków tylko ze stron HTML, przycięte do 300 znaków. */
+   - tytuły linków tylko ze stron HTML, przycięte do 300 znaków.
+   Wersja 11: każde urządzenie ma własny klucz (lista w aplikacji: Pliki →
+   Urządzenia). Odłączone urządzenie traci dostęp od razu, a przy najbliższym
+   połączeniu dostaje polecenie „wyczyść się”. Klucz główny (KLUCZ niżej)
+   jest zapamiętywany we Właściwościach skryptu (KLUCZ_GLOWNY) i służy już
+   tylko do przyłączania urządzeń. Zapomniany? Uruchom w edytorze funkcję
+   nowyKluczGlowny – nowy klucz pojawi się w dzienniku wykonania. */
 
 const KLUCZ = 'WSTAW_KLUCZ';   // aplikacja wstawia tu Twój tajny klucz
-const WERSJA_SKRYPTU = 10;
+const WERSJA_SKRYPTU = 11;
 const WERSJA_DANYCH = 1;               // format pliku Potok.json
 const LIMIT_TRESCI = 20 * 1024 * 1024; // 20 MB – dużo więcej niż potrzeba
 
-/** Zapytanie z aplikacji: { klucz, akcja: 'pobierz' | 'zapisz' | 'synchronizuj' | 'opis' | 'wersja' | 'streszczenia' | 'streszczTeraz' | 'zapiszGotowe' | 'doTranskrypcji', tresc?, url?, od?, id?, rodzaj? } */
+/** Zapytanie z aplikacji: { klucz, nazwa?, typ?, akcja: 'zarejestruj' | 'urzadzenia' | 'noweUrzadzenie' | 'odlacz' | 'zmienKluczGlowny' | 'pobierz' | 'zapisz' | 'synchronizuj' | 'opis' | 'wersja' | 'streszczenia' | 'streszczTeraz' | 'zapiszGotowe' | 'doTranskrypcji', tresc?, url?, od?, id?, rodzaj? } */
 function doPost(e) {
   let dane;
   try { dane = JSON.parse(e.postData.contents); } catch (x) { return wynik({ blad: 'złe dane' }); }
-  if (!dane || dane.klucz !== KLUCZ) return wynik({ blad: 'zły klucz' });
+  const kto = ktoPyta(dane);
+  if (!kto) return wynik({ blad: 'zły klucz' });
+  // Odłączone urządzenie: nic nie dostaje, a aplikacja na nim czyści swoje dane.
+  if (kto.odlaczono) return wynik({ blad: 'to urządzenie zostało odłączone od Potoku', odlaczone: true });
+  if (!kto.glowny) zapamietajUrzadzenie(kto, dane);
+  if (['zarejestruj', 'urzadzenia', 'noweUrzadzenie', 'odlacz', 'zmienKluczGlowny'].indexOf(dane.akcja) >= 0)
+    return wynik(zarzadzajUrzadzeniami(kto, dane));
   if (dane.akcja === 'wersja') return wynik({ wersja: WERSJA_SKRYPTU });
   if (dane.akcja === 'opis') return wynik(opisStrony(dane.url));
   if (dane.akcja === 'streszczenia') return wynik(odczytajStreszczenia(dane.od));
@@ -136,6 +148,126 @@ function wpisyPotoku() {
   if (plik.blad) throw new Error(plik.blad);
   const tresc = plik.getBlob().getDataAsString('UTF-8');
   return tresc && tresc.trim() ? JSON.parse(tresc).wpisy || [] : [];
+}
+
+/* ===================== URZĄDZENIA (od wersji 11) =====================
+   Każde urządzenie ma własny klucz. W Właściwościach skryptu leży tylko
+   skrót klucza (SHA-256), nie sam klucz: U_<skrót> = { nazwa, typ, dodano,
+   ostatnio, odlaczono? }. Osobna właściwość na urządzenie – dwa urządzenia
+   naraz nie nadpiszą sobie wpisów na liście.
+   Zarządzać (lista, nowe urządzenie, odłączanie) może klucz główny i każde
+   urządzenie, które nigdy nie zgłosiło się jako komputer służbowy.
+   X_<skrót> = data odłączenia (nieodwracalne: urządzenie dostaje polecenie
+   wyczyszczenia, a do Potoku wraca tylko z nowym kodem). */
+
+const ZNACZNIK_KLUCZA = 'WSTAW_' + 'KLUCZ';   // klucz jeszcze niewstawiony
+const CO_ILE_ZAPISYWAC_OSTATNIO = 10 * 60 * 1000;
+
+function wlasciwosciSkryptu() { return PropertiesService.getScriptProperties(); }
+
+/** Klucz główny: z Właściwości skryptu, a za pierwszym razem ze stałej KLUCZ. */
+function kluczGlowny() {
+  const p = wlasciwosciSkryptu();
+  let k = p.getProperty('KLUCZ_GLOWNY');
+  if (!k && KLUCZ && KLUCZ !== ZNACZNIK_KLUCZA) { k = KLUCZ; p.setProperty('KLUCZ_GLOWNY', k); }
+  return k || '';
+}
+
+/** Skrót klucza (hex) – po nim szukamy urządzenia. */
+function skrotKlucza(klucz) {
+  const bajty = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, klucz, Utilities.Charset.UTF_8);
+  return bajty.map(function (b) { return ('0' + (b & 255).toString(16)).slice(-2); }).join('');
+}
+
+/** Kto pyta: { glowny: true } albo zapis urządzenia (z polem skrot), null = obcy. */
+function ktoPyta(dane) {
+  if (!dane || typeof dane.klucz !== 'string' || !dane.klucz || dane.klucz === ZNACZNIK_KLUCZA) return null;
+  const glowny = kluczGlowny();
+  if (glowny && dane.klucz === glowny) return { glowny: true };
+  const skrot = skrotKlucza(dane.klucz);
+  const zapis = wlasciwosciSkryptu().getProperty('U_' + skrot);
+  if (!zapis) return null;
+  const u = JSON.parse(zapis);
+  u.skrot = skrot;
+  // Odłączenie leży w osobnej właściwości (X_…), żeby równoczesny zapis
+  // „ostatnio widziane” tego urządzenia go nie nadpisał.
+  u.odlaczono = wlasciwosciSkryptu().getProperty('X_' + skrot) || '';
+  return u;
+}
+
+function zapiszUrzadzenie(u) {
+  const kopia = {};
+  Object.keys(u).forEach(function (k) { if (k !== 'skrot' && k !== 'odlaczono') kopia[k] = u[k]; });
+  wlasciwosciSkryptu().setProperty('U_' + u.skrot, JSON.stringify(kopia));
+}
+
+/** „Ostatnio widziane”, nazwa i typ urządzenia (zapis co najwyżej co 10 minut). */
+function zapamietajUrzadzenie(u, dane) {
+  let zmiana = false;
+  if (!u.nazwa && typeof dane.nazwa === 'string' && dane.nazwa) { u.nazwa = dane.nazwa.slice(0, 60); zmiana = true; }
+  // Raz zgłoszony jako służbowy – zostaje służbowy (nie zarządza innymi urządzeniami).
+  if (dane.typ === 'sluzbowe' && !u.sluzbowe) { u.sluzbowe = true; zmiana = true; }
+  const teraz = new Date();
+  if (!u.ostatnio || teraz - new Date(u.ostatnio) > CO_ILE_ZAPISYWAC_OSTATNIO) { u.ostatnio = teraz.toISOString(); zmiana = true; }
+  if (zmiana) zapiszUrzadzenie(u);
+}
+
+/** Nowy losowy klucz (64 znaki). */
+function losowyKlucz() {
+  return (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
+}
+
+/** Tworzy urządzenie i zwraca jego klucz (pokazywany tylko ten jeden raz). */
+function utworzUrzadzenie(nazwa, sluzbowe) {
+  const klucz = losowyKlucz();
+  const u = { skrot: skrotKlucza(klucz), nazwa: String(nazwa || '').slice(0, 60), dodano: new Date().toISOString() };
+  if (sluzbowe) u.sluzbowe = true;
+  zapiszUrzadzenie(u);
+  return { klucz: klucz, id: u.skrot.slice(0, 16) };
+}
+
+/** Lista urządzeń (bez kluczy). */
+function listaUrzadzen() {
+  const p = wlasciwosciSkryptu().getProperties();
+  return Object.keys(p).filter(function (k) { return k.indexOf('U_') === 0; }).map(function (k) {
+    const u = JSON.parse(p[k]);
+    return { id: k.slice(2, 18), nazwa: u.nazwa || '', sluzbowe: !!u.sluzbowe, dodano: u.dodano || '', ostatnio: u.ostatnio || '', odlaczono: p['X_' + k.slice(2)] || '' };
+  }).sort(function (a, b) { return String(a.dodano).localeCompare(String(b.dodano)); });
+}
+
+function zarzadzajUrzadzeniami(kto, dane) {
+  // Urządzenie z kluczem głównym (sprzed wersji 11) dostaje własny klucz.
+  if (dane.akcja === 'zarejestruj') {
+    if (!kto.glowny) return { blad: 'to urządzenie ma już własny klucz' };
+    return utworzUrzadzenie(dane.nazwa, dane.typ === 'sluzbowe');
+  }
+  if (!kto.glowny && kto.sluzbowe) return { blad: 'komputer służbowy nie zarządza urządzeniami' };
+  const ja = kto.glowny ? '' : kto.skrot.slice(0, 16);
+  if (dane.akcja === 'urzadzenia') return { urzadzenia: listaUrzadzen(), ja: ja };
+  if (dane.akcja === 'noweUrzadzenie') return utworzUrzadzenie(dane.nazwaNowego || 'Nowe urządzenie', !!dane.sluzboweNowe);
+  if (dane.akcja === 'odlacz') {
+    const id = String(dane.id || '');
+    if (!/^[0-9a-f]{16}$/.test(id)) return { blad: 'zły identyfikator urządzenia' };
+    const p = wlasciwosciSkryptu().getProperties();
+    const k = Object.keys(p).filter(function (x) { return x.indexOf('U_' + id) === 0; })[0];
+    if (!k) return { blad: 'nie ma takiego urządzenia' };
+    if (!p['X_' + k.slice(2)]) wlasciwosciSkryptu().setProperty('X_' + k.slice(2), new Date().toISOString());
+    return { ok: true };
+  }
+  if (dane.akcja === 'zmienKluczGlowny') {
+    if (kto.glowny) return { blad: 'najpierw to urządzenie musi dostać własny klucz' };
+    wlasciwosciSkryptu().setProperty('KLUCZ_GLOWNY', 'g' + losowyKlucz());
+    return { ok: true };
+  }
+  return { blad: 'nieznana akcja' };
+}
+
+/** Do uruchomienia w edytorze: nowy klucz główny (stary przestaje działać). */
+function nowyKluczGlowny() {
+  const k = 'g' + losowyKlucz();   // „g” – aplikacja odróżnia go od klucza urządzenia
+  wlasciwosciSkryptu().setProperty('KLUCZ_GLOWNY', k);
+  console.log('Nowy klucz główny: ' + k + '\nKod połączenia: adres /exec + „#” + ten klucz.');
+  return k;
 }
 
 /** Otwarcie adresu w przeglądarce – tylko sprawdzenie, że skrypt działa. */
