@@ -95,8 +95,11 @@ const Synchronizacja = {
    * albo sam adres skryptu + klucz osobno. Zwraca true, gdy wygląda poprawnie.
    */
   ustawSkrypt(kodLubAdres, klucz) {
-    let [url, k] = String(kodLubAdres || '').trim().split('#');
-    k = k || klucz;
+    // Kod przesłany na telefon (mail, komunikator) bywa połamany na linie albo ma
+    // „%23” zamiast „#” – usuwamy wszystkie odstępy i przywracamy „#”.
+    const czysty = String(kodLubAdres || '').replace(/\s+/g, '').replace(/%23/gi, '#');
+    let [url, k] = czysty.split('#');
+    k = k || String(klucz || '').replace(/\s+/g, '');
     if (!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(url) || !k || !/^[\w-]{8,200}$/.test(k)) return false;
     // Klucz urządzenia ze skryptu 11+ to 64 znaki 0-9a-f (klucz główny wygląda inaczej).
     const wlasny = /^[0-9a-f]{64}$/.test(k);
