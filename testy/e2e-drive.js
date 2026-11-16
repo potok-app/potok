@@ -126,7 +126,9 @@ async function scenariusz(przegladarka, tryb) {
       assert(!(await komp.s.isVisible('#kopiuj-kod')));
       // Kod dla telefonu – z listy Urządzenia.
       await komp.s.waitForSelector('#urzadzenia', { state: 'visible' });
-      await komp.s.fill('#nazwa-nowego', 'Telefon');
+      // Wpisywanie jak człowiek (klik + klawiatura), nie fill – pole musi przyjmować tekst.
+      await komp.s.click('#nazwa-nowego'); await komp.s.keyboard.type('Telefon');
+      if (await komp.s.inputValue('#nazwa-nowego') !== 'Telefon') throw new Error('pole nazwy urządzenia nie przyjmuje tekstu');
       await komp.s.click('#utworz-kod');
       await komp.s.waitForSelector('#nowy-kod-pole', { state: 'visible' });
       kodPolaczenia = await komp.s.inputValue('#nowy-kod');
