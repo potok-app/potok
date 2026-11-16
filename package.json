@@ -3,9 +3,10 @@
   "private": true,
   "description": "Potok – skrzynka linków. Ten plik służy tylko do automatycznych testów; aplikacja nie potrzebuje instalacji.",
   "scripts": {
-    "test": "node testy/uruchom-testy.js && node testy/test-skryptu.js && node testy/e2e.js && node testy/e2e-drive.js && node testy/e2e-offline.js"
+    "test": "node testy/test-spojnosci.js && node testy/uruchom-testy.js && node testy/test-skryptu.js && node testy/e2e.js && node testy/e2e-drive.js && node testy/e2e-offline.js",
+    "skrypt": "node narzedzia/zbuduj-skrypt.js"
   },
   "devDependencies": {
-    "playwright": "1.48.2"
+    "playwright": "1.63.0"
   }
 }

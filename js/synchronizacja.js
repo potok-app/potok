@@ -4,96 +4,84 @@
    Jak to działa:
    - na Drive jest folder „Potok”, a w nim jeden plik „Potok.json”
      z wszystkimi wpisami (ten sam format co kopia zapasowa),
-   - aplikacja ma dostęp TYLKO do plików, które sama utworzyła
-     (uprawnienie drive.file) – nie widzi reszty Twojego Drive,
+   - plik czyta i zapisuje Twój własny skrypt Google (skrypt-google/Kod.gs),
+     który działa na Twoim koncie; aplikacja zna jego adres i tajny klucz
+     („kod połączenia”). Bez Google Cloud i bez logowania co godzinę,
    - każde urządzenie pracuje na swojej kopii (działa bez internetu),
-     a synchronizacja łączy ją z plikiem na Drive:
-       1. pobiera plik z Drive,
-       2. łączy wpisy (funkcja scal – nic nie ginie),
-       3. zapisuje wynik u siebie i z powrotem na Drive,
+     a synchronizacja łączy ją z plikiem na Drive (funkcja scalWpisy
+     z scal.js – nic nie ginie):
+       • skrypt w wersji 10+: jedno zapytanie „synchronizuj” – skrypt sam
+         łączy dane pod blokadą, więc dwa urządzenia naraz nie zgubią
+         sobie zmian,
+       • starszy skrypt: pobierz → połącz → wyślij (jak dawniej),
+   - skrypt w wersji 11+: każde urządzenie ma własny klucz. Urządzenie
+     połączone kodem z kluczem głównym samo prosi o własny klucz (zarejestruj)
+     i zapomina klucz główny. Odłączone (z listy w Pliki na innym urządzeniu)
+     dostaje od skryptu „odlaczone” i czyści z przeglądarki wszystko o Potoku,
    - synchronizacja rusza sama: przy otwarciu aplikacji, chwilę po każdej
      zmianie i gdy wraca internet. Bez internetu zmiany czekają w kolejce
      („do wysłania”) – nic nie trzeba pamiętać.
 
-   Dwa sposoby połączenia z Drive:
-   A) SKRYPT GOOGLE (używany na co dzień): mały skrypt na script.google.com
-      (plik skrypt-google/Kod.gs) działa na Twoim koncie i czyta/zapisuje
-      Potok.json. Aplikacja zna jego adres i tajny klucz („kod połączenia”).
-      Bez Google Cloud, bez logowania co godzinę.
-   B) GOOGLE CLOUD (OAuth): wymaga „Client ID” z Google Cloud. Logowanie
-      biblioteką Google Identity Services daje „token” ważny ok. godziny;
-      po wygaśnięciu wystarczy jedno kliknięcie w znaczek ☁ u góry.
+   Dawny drugi sposób (Google Cloud / OAuth) usunięty 16.11.2026 po audycie:
+   nie był używany, a ładował obcy skrypt przy każdym otwarciu. Jest w historii gita.
    ===================================================================== */
 
-// Client ID z Google Cloud (nie jest tajny). Testy mogą go podmienić.
-window.USTAWIENIA = window.USTAWIENIA || {
-  googleClientId: '',
-};
-
-const DRIVE = 'https://www.googleapis.com/drive/v3';
-const DRIVE_UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
-const ZAKRES = 'https://www.googleapis.com/auth/drive.file';
+// Najnowsza wersja skryptu Google, jaką zna ta aplikacja (skrypt-google/Kod.gs).
+const NAJNOWSZY_SKRYPT = 11;
+// Wersja formatu danych (pole „wersja” w Potok.json). Nowsza = zapisana przez
+// nowszą aplikację – wtedy ta (stara) wersja nic nie wysyła.
+const WERSJA_DANYCH = 1;
 
 const Synchronizacja = {
   // Aktualny stan, pokazywany w znaczku ☁ u góry ekranu.
-  stan: 'niepolaczone',   // niepolaczone | offline | czeka | trwa | zapisane | zaloguj | blad
+  stan: 'niepolaczone',   // niepolaczone | offline | czeka | trwa | zapisane | blad
   ostatnio: null,         // czas ostatniej udanej synchronizacji
   blad: '',
+  sprawdzWersje: true,    // raz na uruchomienie (i po „Synchronizuj teraz”) pytamy skrypt o wersję
 
   /* ---------------- Łączenie danych (bez sieci, testowane) -------- */
 
   /** Kiedy wpis zmienił się ostatnio (do wyboru nowszej wersji). */
-  czasZmiany(w) {
-    const h = (w.historia || [])[(w.historia || []).length - 1];
-    return w.zmieniono || (h && h.data) || w.dodano || '';
+  czasZmiany(w) { return czasZmianyWpisu(w); },
+
+  /** Łączy wpisy z tego urządzenia z wpisami z Drive – patrz scal.js. */
+  scal(lokalne, zdalne) { return scalWpisy(lokalne, zdalne); },
+
+  /** Treść pliku Potok.json z listy wpisów. */
+  tresc(wpisy) {
+    return JSON.stringify({ wersja: WERSJA_DANYCH, zapisano: new Date().toISOString(), wpisy }, null, 1);
   },
 
   /**
-   * Łączy wpisy z tego urządzenia (lokalne) z wpisami z Drive (zdalne).
-   * Zasady:
-   *  - wpis, który jest tylko po jednej stronie, zostaje (nic nie ginie),
-   *  - gdy wpis jest po obu stronach: wygrywa nowsza wersja (czasZmiany),
-   *    a historie zmian z obu stron są sklejane – historia też nie ginie.
-   * Zwraca { wpisy, inneNizZdalne } – czy trzeba wysłać wynik na Drive.
+   * Treść pliku z Drive → poprawione wpisy. Pusty plik = brak wpisów.
+   * Zły plik → błąd (nigdy „udajemy, że pusty”). Nowszy format → błąd.
    */
-  scal(lokalne, zdalne) {
-    const wynik = new Map();
-    for (const w of zdalne) wynik.set(w.id, w);
-    for (const l of lokalne) {
-      const z = wynik.get(l.id);
-      if (!z) { wynik.set(l.id, l); continue; }
-      let nowszy = this.czasZmiany(l) >= this.czasZmiany(z) ? l : z;
-      // Tytuł pobrany z internetu na jednym urządzeniu nie ginie przez
-      // decyzję podjętą na drugim (opis nie zmienia „zmieniono”).
-      const starszy = nowszy === l ? z : l;
-      if (!nowszy.opisPobrany && starszy.opisPobrany)
-        nowszy = { ...nowszy, tytul: starszy.tytul, autor: starszy.autor, opisPobrany: starszy.opisPobrany };
-      // Sklejenie historii (bez powtórzeń), posortowane po dacie.
-      const widziane = new Set();
-      const historia = [...(z.historia || []), ...(l.historia || [])]
-        .filter(h => { const k = h.data + '|' + h.z + '|' + h.na; if (widziane.has(k)) return false; widziane.add(k); return true; })
-        .sort((a, b) => a.data.localeCompare(b.data));
-      wynik.set(l.id, { ...nowszy, historia });
-    }
-    const wpisy = [...wynik.values()].sort((a, b) =>
-      (a.kolejnosc - b.kolejnosc) || String(a.dodano).localeCompare(String(b.dodano)));
-    const inneNizZdalne = JSON.stringify(wpisy) !== JSON.stringify(
-      [...zdalne].sort((a, b) => (a.kolejnosc - b.kolejnosc) || String(a.dodano).localeCompare(String(b.dodano))));
-    return { wpisy, inneNizZdalne };
+  odczytajTresc(tresc) {
+    if (typeof tresc !== 'string' || !tresc.trim()) return [];
+    let dane;
+    try { dane = JSON.parse(tresc); } catch { throw new Error('Plik Potok.json na Drive jest uszkodzony (zły JSON) – nic nie wysyłam.'); }
+    if (!dane || typeof dane !== 'object') throw new Error('Plik Potok.json na Drive ma zły format – nic nie wysyłam.');
+    if (Number(dane.wersja) > WERSJA_DANYCH)
+      throw new Error('Plik na Drive zapisała nowsza wersja Potoku. Zamknij i otwórz aplikację, żeby się zaktualizowała.');
+    const { wpisy, odrzucone } = Magazyn.naprawWszystkie(dane.wpisy || []);
+    Magazyn.odlozOdrzucone(odrzucone, 'Google Drive');
+    return wpisy;
   },
 
-  /* ---------------- Logowanie Google ------------------------------ */
+  /* ---------------- Połączenie ze skryptem Google ----------------- */
 
+  /** Czy to urządzenie jest połączone z Drive. */
   dostepne() {
-    return !!window.USTAWIENIA.googleClientId || !!this.skrypt();
+    return !!this.skrypt();
   },
-
-  /* ---------------- Sposób A: skrypt Google ----------------------- */
 
   /** Zapisany skrypt: { url, klucz } albo null. */
   skrypt() {
-    try { return JSON.parse(localStorage.getItem(Magazyn.klucz + '.skrypt') || 'null'); }
-    catch { return null; }
+    try {
+      const s = JSON.parse(localStorage.getItem(Magazyn.klucz + '.skrypt') || 'null');
+      // wlasny: true = klucz tylko tego urządzenia (skrypt 11+), id – jego numer na liście.
+      return s && typeof s.url === 'string' && typeof s.klucz === 'string' ? s : null;
+    } catch { return null; }
   },
 
   /** Losowy tajny klucz (32 znaki) – tylko Ty i Twój skrypt go znacie. */
@@ -107,163 +95,151 @@ const Synchronizacja = {
    * albo sam adres skryptu + klucz osobno. Zwraca true, gdy wygląda poprawnie.
    */
   ustawSkrypt(kodLubAdres, klucz) {
-    let [url, k] = String(kodLubAdres || '').trim().split('#');
-    k = k || klucz;
-    if (!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(url) || !k) return false;
-    localStorage.setItem(Magazyn.klucz + '.skrypt', JSON.stringify({ url, klucz: k }));
-    localStorage.setItem(Magazyn.klucz + '.drive', '1');
+    // Kod przesłany na telefon (mail, komunikator) bywa połamany na linie albo ma
+    // „%23” zamiast „#” – usuwamy wszystkie odstępy i przywracamy „#”.
+    const czysty = String(kodLubAdres || '').replace(/\s+/g, '').replace(/%23/gi, '#');
+    let [url, k] = czysty.split('#');
+    k = k || String(klucz || '').replace(/\s+/g, '');
+    if (!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(url) || !k || !/^[\w-]{8,200}$/.test(k)) return false;
+    // Klucz urządzenia ze skryptu 11+ to 64 znaki 0-9a-f (klucz główny wygląda inaczej).
+    const wlasny = /^[0-9a-f]{64}$/.test(k);
+    localStorage.setItem(Magazyn.klucz + '.skrypt', JSON.stringify(wlasny ? { url, klucz: k, wlasny } : { url, klucz: k }));
+    localStorage.removeItem(Magazyn.klucz + '.wersjaSkryptu');
+    this.sprawdzWersje = true;
     return true;
   },
 
-  /** Kod połączenia do wklejenia na innym urządzeniu (zawiera tajny klucz!). */
+  /** Odłącza to urządzenie. Wpisy zostają tutaj i na Drive. */
+  rozlacz() {
+    // .drive, .token, .plikId – pozostałości po dawnym sposobie przez Google Cloud.
+    for (const k of ['.skrypt', '.wersjaSkryptu', '.drive', '.token', '.plikId', '.skryptStary']) localStorage.removeItem(Magazyn.klucz + k);
+    this.ustawStan('niepolaczone');
+  },
+
+  /** Kod połączenia do wklejenia na innym urządzeniu (zawiera tajny klucz!).
+      Urządzenie z własnym kluczem nie oddaje go – nowe dostaje własny (noweUrzadzenie). */
   kodPolaczenia() {
     const s = this.skrypt();
-    return s ? s.url + '#' + s.klucz : '';
+    return s && !s.wlasny ? s.url + '#' + s.klucz : '';
+  },
+
+  /* ---------------- Urządzenia (skrypt 11+) ------------------------ */
+
+  /** Nazwa tego urządzenia na liście, np. „Telefon · Chrome” albo „Komputer służbowy · Edge”. */
+  nazwaUrzadzenia() {
+    const ua = navigator.userAgent;
+    const rodzaj = /Android|iPhone|iPad|Mobile/.test(ua) ? 'Telefon' : 'Komputer';
+    const przegladarka = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'przeglądarka';
+    return rodzaj + (Magazyn.urzadzenie() === 'sluzbowe' ? ' służbowy' : '') + ' · ' + przegladarka;
+  },
+
+  /** Urządzenie z kluczem głównym prosi o własny klucz i zapomina główny. */
+  async zarejestruj() {
+    const s = this.skrypt();
+    const { klucz, id } = await this.doSkryptu({ akcja: 'zarejestruj' });
+    if (!/^[0-9a-f]{64}$/.test(klucz || '')) throw new Error('Skrypt Google nie dał klucza urządzenia');
+    localStorage.setItem(Magazyn.klucz + '.skrypt', JSON.stringify({ url: s.url, klucz, wlasny: true, id }));
+  },
+
+  /** Lista urządzeń: { urzadzenia: [{ id, nazwa, sluzbowe, dodano, ostatnio, odlaczono }], ja }. */
+  urzadzenia() { return this.doSkryptu({ akcja: 'urzadzenia' }); },
+
+  /** Kod połączenia dla nowego urządzenia (z jego własnym kluczem). */
+  async noweUrzadzenie(nazwa, sluzbowe) {
+    const { klucz } = await this.doSkryptu({ akcja: 'noweUrzadzenie', nazwaNowego: nazwa, sluzboweNowe: !!sluzbowe });
+    return this.skrypt().url + '#' + klucz;
+  },
+
+  /** Odłącza urządzenie: traci dostęp od razu, a przy następnym połączeniu czyści się. */
+  odlacz(id) { return this.doSkryptu({ akcja: 'odlacz', id }); },
+
+  /** Nowy klucz główny w skrypcie (stary przestaje działać, urządzenia działają dalej). */
+  zmienKluczGlowny() { return this.doSkryptu({ akcja: 'zmienKluczGlowny' }); },
+
+  /**
+   * To urządzenie zostało odłączone: usuwamy z przeglądarki wszystko o Potoku
+   * (wpisy, kod połączenia, ustawienia, kopię offline) i otwieramy czystą stronę.
+   * Wpisy są dalej na Google Drive i na innych urządzeniach.
+   */
+  async wyczyscUrzadzenie() {
+    if (this.czyszczenie) return;
+    this.czyszczenie = true;
+    try { if (window.caches) for (const n of await caches.keys()) await caches.delete(n); } catch { /* trudno */ }
+    try { if (navigator.serviceWorker) for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); } catch { /* trudno */ }
+    for (const k of Object.keys(localStorage)) if (k.startsWith('potok')) localStorage.removeItem(k);
+    try { sessionStorage.clear(); } catch { /* trudno */ }
+    // Do czasu przeładowania nic już nie zapisze danych z powrotem.
+    Storage.prototype.setItem = function () {};
+    location.replace(location.pathname + '#odlaczone');
+    location.reload();
   },
 
   /** Zapytanie do skryptu. Bez nagłówków – przeglądarka nie robi wtedy dodatkowego sprawdzenia (CORS). */
   async doSkryptu(dane) {
     const s = this.skrypt();
-    const odp = await fetch(s.url, { method: 'POST', body: JSON.stringify({ ...dane, klucz: s.klucz }) });
+    // nazwa i typ: skrypt 11+ pokazuje je na liście urządzeń (starszy je pomija).
+    const odp = await fetch(s.url, { method: 'POST', body: JSON.stringify({ ...dane, klucz: s.klucz, nazwa: this.nazwaUrzadzenia(), typ: Magazyn.urzadzenie() }) });
     if (!odp.ok) throw new Error('Skrypt Google odpowiedział błędem ' + odp.status);
     const wynik = await odp.json();
+    if (wynik.odlaczone === true) { await this.wyczyscUrzadzenie(); throw new Error('To urządzenie zostało odłączone od Potoku.'); }
     if (wynik.blad) throw new Error('Skrypt Google: ' + wynik.blad);
     return wynik;
   },
 
-  /** Token zapisany na tym urządzeniu (jeśli jeszcze ważny). */
-  token() {
-    try {
-      const t = JSON.parse(localStorage.getItem(Magazyn.klucz + '.token') || 'null');
-      return t && t.wygasa > Date.now() + 60000 ? t.token : null;
-    } catch { return null; }
-  },
-
-  /** Czy kiedyś połączono to urządzenie z Drive. */
-  polaczone() {
-    return localStorage.getItem(Magazyn.klucz + '.drive') === '1';
-  },
-
   /**
-   * Logowanie do Google – wywoływane kliknięciem (przeglądarki blokują
-   * okienka logowania otwierane bez kliknięcia). Po sukcesie: synchronizacja.
+   * Wersja skryptu Google. Pytamy raz na uruchomienie (i po „Synchronizuj
+   * teraz”), wynik pamiętamy. Skrypt starszy niż 3 nie zna pytania o wersję.
    */
-  zaloguj() {
-    if (!window.google || !google.accounts || !google.accounts.oauth2) {
-      this.ustawStan('blad', 'Brak połączenia z Google – sprawdź internet i odśwież stronę.');
-      return;
-    }
-    const klient = google.accounts.oauth2.initTokenClient({
-      client_id: window.USTAWIENIA.googleClientId,
-      scope: ZAKRES,
-      callback: (odp) => {
-        if (odp.error) { this.ustawStan('blad', 'Logowanie przerwane: ' + odp.error); return; }
-        localStorage.setItem(Magazyn.klucz + '.token', JSON.stringify({
-          token: odp.access_token,
-          wygasa: Date.now() + (Number(odp.expires_in) || 3600) * 1000,
-        }));
-        localStorage.setItem(Magazyn.klucz + '.drive', '1');
-        this.synchronizuj();
-      },
-    });
-    // prompt: '' – jeśli już kiedyś się zgodziłeś, okienko zamknie się samo.
-    klient.requestAccessToken({ prompt: this.polaczone() ? '' : 'consent' });
+  async wersjaSkryptu() {
+    if (!this.sprawdzWersje && this.zapamietanaWersja()) return this.zapamietanaWersja();
+    let wersja;
+    try { wersja = Number((await this.doSkryptu({ akcja: 'wersja' })).wersja) || 3; }
+    catch (e) { if (/nieznana akcja/.test(e.message)) wersja = 2; else throw e; }
+    this.sprawdzWersje = false;
+    localStorage.setItem(Magazyn.klucz + '.wersjaSkryptu', String(wersja));
+    window.dispatchEvent(new Event('potok-stan-synchronizacji'));
+    return wersja;
   },
-
-  /* ---------------- Google Drive: pliki --------------------------- */
-
-  /** Zapytanie do Drive z tokenem. Błąd 401 = token wygasł. */
-  async api(url, opcje = {}) {
-    const odp = await fetch(url, {
-      ...opcje,
-      headers: { Authorization: 'Bearer ' + this.token(), ...(opcje.headers || {}) },
-    });
-    if (odp.status === 401) {
-      localStorage.removeItem(Magazyn.klucz + '.token');
-      throw Object.assign(new Error('Sesja Google wygasła.'), { zaloguj: true });
-    }
-    if (!odp.ok) throw new Error('Google Drive odpowiedział błędem ' + odp.status);
-    return odp;
+  /** Ostatnio sprawdzona wersja skryptu (0 = jeszcze nie wiadomo). */
+  zapamietanaWersja() {
+    return Number(localStorage.getItem(Magazyn.klucz + '.wersjaSkryptu')) || 0;
   },
-
-  /** Szuka pliku/folderu utworzonego przez Potok. Zwraca id albo null. */
-  async znajdz(zapytanie) {
-    const q = encodeURIComponent(zapytanie + ' and trashed=false');
-    const odp = await this.api(`${DRIVE}/files?q=${q}&fields=files(id,name)&spaces=drive`);
-    const dane = await odp.json();
-    return dane.files && dane.files.length ? dane.files[0].id : null;
-  },
-
-  /** Zwraca id pliku Potok.json (tworzy folder i plik, jeśli ich nie ma). */
-  async idPliku() {
-    const zapamietane = localStorage.getItem(Magazyn.klucz + '.plikId');
-    if (zapamietane) return zapamietane;
-
-    let folder = await this.znajdz("name='Potok' and mimeType='application/vnd.google-apps.folder'");
-    if (!folder) {
-      const odp = await this.api(`${DRIVE}/files?fields=id`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'Potok', mimeType: 'application/vnd.google-apps.folder' }),
-      });
-      folder = (await odp.json()).id;
-    }
-    let plik = await this.znajdz(`name='Potok.json' and '${folder}' in parents`);
-    if (!plik) {
-      const odp = await this.api(`${DRIVE}/files?fields=id`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'Potok.json', parents: [folder], mimeType: 'application/json' }),
-      });
-      plik = (await odp.json()).id;
-      await this.wyslij(plik, []);   // pusty plik na start
-    }
-    localStorage.setItem(Magazyn.klucz + '.plikId', plik);
-    return plik;
-  },
-
-  async pobierz(id) {
-    if (this.skrypt()) {
-      const { tresc } = await this.doSkryptu({ akcja: 'pobierz' });
-      return tresc && tresc.trim() ? JSON.parse(tresc).wpisy || [] : [];
-    }
-    const odp = await this.api(`${DRIVE}/files/${id}?alt=media`);
-    const tekst = await odp.text();
-    if (!tekst.trim()) return [];
-    return JSON.parse(tekst).wpisy || [];
-  },
-
-  async wyslij(id, wpisy) {
-    if (this.skrypt()) {
-      await this.doSkryptu({ akcja: 'zapisz', tresc: JSON.stringify({ wersja: 1, zapisano: new Date().toISOString(), wpisy }, null, 1) });
-      return;
-    }
-    await this.api(`${DRIVE_UPLOAD}/files/${id}?uploadType=media`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ wersja: 1, zapisano: new Date().toISOString(), wpisy }, null, 1),
-    });
+  /** Czy warto zaktualizować skrypt (Pliki pokazują wtedy ramkę z instrukcją). */
+  skryptDoAktualizacji() {
+    const v = this.zapamietanaWersja();
+    return !!this.skrypt() && v > 0 && v < NAJNOWSZY_SKRYPT;
   },
 
   /* ---------------- Synchronizacja -------------------------------- */
 
-  /** Pobiera z Drive, łączy, zapisuje u siebie i na Drive. */
+  /** Łączy dane tego urządzenia z plikiem na Drive. */
   async synchronizuj() {
     if (!this.dostepne()) return this.ustawStan('niepolaczone');
     if (!navigator.onLine) return this.ustawStan('offline');
-    if (!this.skrypt() && !this.token()) return this.ustawStan(this.polaczone() ? 'zaloguj' : 'niepolaczone');
     if (this.trwa) { this.ponow = true; return; }   // jedna synchronizacja naraz
+    if (Magazyn.uszkodzone()) return this.ustawStan('blad', 'Dane w tej przeglądarce są uszkodzone – decyzja w komunikacie u góry.');
 
     this.trwa = true;
     this.ustawStan('trwa');
     try {
-      const id = this.skrypt() ? 'skrypt' : await this.idPliku();
-      const zdalne = await this.pobierz(id);
-      const lokalne = Magazyn.wczytaj();
-      const { wpisy, inneNizZdalne } = this.scal(lokalne, zdalne);
-      Magazyn.zapisz(wpisy, false);               // u siebie, bez oznaczania „do wysłania”
-      if (inneNizZdalne) await this.wyslij(id, wpisy);
-      Magazyn.wyslano();
+      const wersja = await this.wersjaSkryptu();
+      if (wersja >= 11 && !this.skrypt().wlasny) await this.zarejestruj();
+      // Licznik zmian przed wysłaniem: jeśli coś zmienisz w trakcie,
+      // znacznik „do wysłania” zostaje i synchronizacja ruszy jeszcze raz.
+      const licznik = Magazyn.licznikZmian();
+      if (wersja >= 10) {
+        // Skrypt łączy dane sam, pod blokadą – atomowo.
+        const { tresc } = await this.doSkryptu({ akcja: 'synchronizuj', tresc: this.tresc(Magazyn.wczytaj()) });
+        const zDrive = this.odczytajTresc(tresc);
+        Magazyn.zapisz(this.scal(Magazyn.wczytaj(), zDrive).wpisy, false);
+      } else {
+        const zdalne = this.odczytajTresc((await this.doSkryptu({ akcja: 'pobierz' })).tresc);
+        const { wpisy, inneNizZdalne } = this.scal(Magazyn.wczytaj(), zdalne);
+        Magazyn.zapisz(wpisy, false);               // u siebie, bez oznaczania „do wysłania”
+        if (inneNizZdalne) await this.doSkryptu({ akcja: 'zapisz', tresc: this.tresc(wpisy) });
+      }
+      if (Magazyn.licznikZmian() === licznik) Magazyn.wyslano();
+      else this.ponow = true;
       this.ostatnio = new Date();
       this.ustawStan('zapisane');
       window.dispatchEvent(new Event('potok-odswiez'));   // ekran pokaże nowe dane
@@ -271,13 +247,8 @@ const Synchronizacja = {
       if (typeof Streszczenia !== 'undefined') Streszczenia.pobierz();  // streszczenia AI z Drive, w tle
     } catch (e) {
       console.error('Synchronizacja', e);
-      if (e.zaloguj) this.ustawStan('zaloguj');
-      else if (!navigator.onLine) this.ustawStan('offline');
-      else {
-        // Plik mógł zostać usunięty z Drive – następnym razem utworzymy nowy.
-        localStorage.removeItem(Magazyn.klucz + '.plikId');
-        this.ustawStan('blad', e.message);
-      }
+      if (!navigator.onLine) this.ustawStan('offline');
+      else this.ustawStan('blad', e.message);
     } finally {
       this.trwa = false;
       if (this.ponow) { this.ponow = false; this.synchronizuj(); }
@@ -300,9 +271,8 @@ const Synchronizacja = {
       case 'zapisane':  return `☁ zapisane ${czas}`;
       case 'czeka':     return '☁ czeka na wysłanie';
       case 'offline':   return Magazyn.czekaNaWyslanie() ? '☁ bez internetu – wyślę później' : '☁ bez internetu';
-      case 'zaloguj':   return '☁ kliknij, aby zsynchronizować';
       case 'blad':      return '☁ błąd – kliknij, aby ponowić';
-      default:          return window.USTAWIENIA.googleClientId ? '☁ połącz z Google Drive' : '';
+      default:          return '';
     }
   },
 
@@ -312,13 +282,14 @@ const Synchronizacja = {
   start() {
     // Chwilę po każdej zmianie (zbieramy kilka kliknięć w jedno wysłanie).
     window.addEventListener('potok-zmiana', () => {
+      if (!this.dostepne()) return;
       clearTimeout(this.odczekaj);
       this.ustawStan(navigator.onLine ? 'czeka' : 'offline');
       this.odczekaj = setTimeout(() => this.synchronizuj(), 1500);
     });
     // Gdy wraca internet – wysyłamy to, co czekało.
     window.addEventListener('online', () => this.synchronizuj());
-    window.addEventListener('offline', () => this.ustawStan('offline'));
+    window.addEventListener('offline', () => { if (this.dostepne()) this.ustawStan('offline'); });
     // Gdy wracasz do karty z aplikacją – pobieramy zmiany z innych urządzeń.
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') this.synchronizuj();

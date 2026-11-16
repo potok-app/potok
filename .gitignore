@@ -4,6 +4,5 @@
 *.json.bak
 Potok-kopia-*.json
 zrzut-*.png
-# Narzędzia do testów
+# Narzędzia do testów (package-lock.json JEST w repozytorium – stałe wersje)
 node_modules/
-package-lock.json

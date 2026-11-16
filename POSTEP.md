@@ -1,5 +1,30 @@
 # Potok – postęp prac i decyzje
 
+## 16.11.2026 (3) – przenosiny na osobny adres (B-05)
+- Repozytorium przeniesione do osobnej organizacji: **github.com/potok-app/potok**. Adres aplikacji: **https://potok-app.github.io/potok/** (strona działa, publikacja przez GitHub Actions jak dotąd).
+- Stary adres https://cyberia-studio-projects.github.io/potok/ to teraz osobne, małe repozytorium ze stroną, która czyści z przeglądarki stare dane Potoku i przekierowuje pod nowy adres (sprawdzone: przekierowuje).
+- Dane w przeglądarce są osobne dla każdego adresu, więc na każdym urządzeniu: otworzyć nowy adres → Pliki → Google Drive → wkleić kod połączenia (adres /exec + „#” + klucz). Na telefonie: odinstalować starą aplikację Potok i zainstalować z nowego adresu (inaczej „Udostępnij → Potok” trafia pod stary adres).
+- Wpisy z 9.11 niżej podają stary adres – zostawione jako historia.
+
+## 16.11.2026 (2) – osobny kod dla każdego urządzenia, zdalne „Odłącz i wyczyść” (aplikacja v29, skrypt Google v11)
+Prośba (B-10 z audytu): móc zdalnie odłączyć komputer służbowy i wyczyścić z jego przeglądarki wszystko o Potoku.
+- **Skrypt v11:** każde urządzenie ma własny klucz. We Właściwościach skryptu tylko skrót (SHA-256): `U_<skrót>` = nazwa, służbowe, dodano, ostatnio; `X_<skrót>` = data odłączenia (osobno, żeby zapis „ostatnio” go nie nadpisał). Klucz główny przenoszony do właściwości `KLUCZ_GLOWNY` i służy już tylko do przyłączania. Akcje: `zarejestruj`, `urzadzenia`, `noweUrzadzenie`, `odlacz`, `zmienKluczGlowny`; funkcja `nowyKluczGlowny` w edytorze (awaryjnie). Odłączone urządzenie na każde zapytanie dostaje `{ odlaczone: true }`. Komputer, który choć raz zgłosił się jako służbowy, nie zarządza urządzeniami.
+- **Aplikacja:** przy skrypcie 11 urządzenie z kluczem głównym samo dostaje własny klucz i zapomina główny. Pliki → **Urządzenia**: lista (nazwa, 💼, ostatnio widziane), „Utwórz kod połączenia” dla nowego urządzenia (też Pobieracza), „Odłącz i wyczyść”, „Zmień klucz główny”. Po `odlaczone` aplikacja usuwa pamięć podręczną, service workera, wszystkie klucze `potok*` z localStorage i sessionStorage, przeładowuje się i mówi, co się stało.
+- **B-09** zostaje jak jest (🏠 = tylko prywatnie; na służbowym wpis widoczny, link zablokowany). **B-05** załatwione 16.11 – patrz wpis „przenosiny” wyżej.
+- **Testy:** test-skryptu (klucze, skróty zamiast kluczy, prawa służbowego, odłączenie dla każdej akcji, zmiana klucza głównego), e2e-drive krok 11 (komputer w pracy przyłączony kodem z listy, odłączony z domu, w jego przeglądarce nic nie zostaje).
+
+## 16.11.2026 – poprawki po audycie bezpieczeństwa i architektury (wersja aplikacji 28, skrypt Google v10)
+Audyt (Fable 5.2) leży w plikach projektu, poza publicznym repo. Wdrożone (Opus 5.5):
+- **Dane nie mogą zniknąć (B-01, A-01, A-04):** `Magazyn.napraw` sprawdza i naprawia każdy wpis na wejściu (pamięć, kopia, Drive, formularz); nieznane pola zostają, elementy niebędące wpisami są odkładane w `potok.v1.odrzucone`. Nieczytelne dane → tryb tylko do odczytu, surowa kopia pod `potok.v1.uszkodzone.<data>`, czerwony pasek z decyzją. Bezpiecznik w `zapisz`: zapis, który zgubiłby wpis, jest wstrzymany; brak miejsca → czytelny błąd. W Pliki widać zajętość pamięci.
+- **Wejścia i HTML (B-02, B-03, B-06, B-14, B-15):** linki tylko http/https/file (`Magazyn.bezpiecznyAdres`, przy zapisie i rysowaniu), wszystkie atrybuty przez `esc`, `noopener noreferrer`. Udostępnienie: limity długości, zepsuty adres nie blokuje startu, komunikat „Dodano z udostępnienia · Cofnij (do Archiwum)”. Eksport .md bez HTML z cudzych tytułów. Zmyślone identyfikatory w testach.
+- **Druga linia obrony (B-04, B-05, B-11, B-12, A-05, A-06):** Content-Security-Policy w index.html, ochrona przed ramką, usunięty skrypt logowania Google. Service worker pamięta tylko pliki aplikacji (bez adresów z udostępnień, bez 404). `js/bledy.js` + Pliki → Diagnostyka. `testy/test-spojnosci.js` pilnuje wersji i listy plików. CI publikuje tylko pliki strony, uprawnienia per zadanie, `package-lock.json` + `npm ci`, Playwright 1.63.0.
+- **Skrypt Google v10 – zawiera też streszczenia AI z v9 (B-07, B-08, B-13, A-03):** odrzuca zapis gubiący wpisy i złą treść, kopia dzienna `Potok/kopie/Potok-RRRR-MM-DD.json` (nie kasowane), akcja `synchronizuj` łączy dane pod blokadą, plik pamiętany po id, plik w koszu → błąd. Aplikacja ze starszym skryptem działa po staremu i pokazuje ramkę aktualizacji. Wspólne `js/scal.js` wstawiane do Kod.gs przez `npm run skrypt`.
+- **Tytuły (B-08):** domyślnie tylko YouTube; inne strony po włączeniu w Pliki. Nigdy: 🏠, komputer służbowy, linki z tokenami/„potwierdź/wypisz”, sieć lokalna.
+- **Konflikty (A-02, A-11):** przy różnych statusach decyduje ostatnia decyzja w sklejonej historii; 🏠 ma własny czas (`prywatneZmieniono`); remis rozstrzygany tak samo na obu urządzeniach. Plik z nowszą wersją formatu → nic nie wysyłamy. Licznik zmian: zmiana w trakcie wysyłania nie gubi znacznika „do wysłania”.
+- **Usunięte:** ścieżka Google Cloud/OAuth (A-07; jest w historii gita).
+- **Nie zrobione, czeka na decyzję użytkownika:** 🏠 na służbowym poza blokadą linku (B-09), osobny adres strony (B-05), „Wyczyść to urządzenie” i osobne klucze na urządzenie (B-10). Odłożone (niski priorytet): A-08 (opis jako obiekt), A-09 (podział app.js), migracje jednorazowe.
+- **Testy:** 74 jednostkowe (nowy `testy/zle-dane.js`), test-skryptu na v10, e2e-drive uruchamia prawdziwy Kod.gs (scenariusz v10) obok starego skryptu, e2e-offline sprawdza przez http: CSP, ramkę, service worker, złośliwe udostępnienia, diagnostykę, pasek uszkodzonych danych.
+
 ## 15.11.2026 (7) – Pobieracz dostaje każdy film YouTube czekający na streszczenie (skrypt v9, aplikacja v27)
 - Objaw przy pierwszej próbie: Pobieracz napisał „żaden film nie czeka na transkrypcję”, a „Streść teraz” przy podcaście (3 h) nic nie zmieniło – przy wpisie dalej stary błąd 404 ze skryptu v7. Film nie miał oznaczenia „do ręcznego”, a skrypt v8 dawał Pobieraczowi tylko takie.
 - Prawdopodobna przyczyna: skrypt Google nie odczytał długości filmu ze strony YouTube (YouTube pokazuje serwerom Google inną stronę), więc wysłał cały film do Gemini i nie zdążył przed limitem czasu.
@@ -74,7 +99,7 @@
 - Aplikacja: raz na uruchomienie (i po „Synchronizuj teraz”) sprawdza wersję skryptu. Przy starszej pokazuje ramkę aktualizacji (5 kroków) i nie pobiera tytułów. Z v3 ponawia nieudane próby v2 (`brak`, `brak-2`). Nowe nieudane mają `brak-3`, a problem widać w Pliki.
 
 ## 9.11.2026 – jeden „wolny” link blokował wszystkie tytuły (wersja 19)
-- Objaw: po wersji 18 dalej żadnych tytułów, nawet danluu.com. Przyczyna (odtworzona w teście): gdy skrypt Google nie odpowie dla jakiegoś linku (np. przekroczy czas na wolnej stronie), przeglądarka zgłasza błąd sieci. Potok uznawał wtedy „brak internetu” i za każdym razem stawał na tym samym linku.
+- Objaw: po wersji 18 dalej żadnych tytułów, nawet dla zwykłych stron. Przyczyna (odtworzona w teście): gdy skrypt Google nie odpowie dla jakiegoś linku (np. przekroczy czas na wolnej stronie), przeglądarka zgłasza błąd sieci. Potok uznawał wtedy „brak internetu” i za każdym razem stawał na tym samym linku.
 - Teraz taki link jest pomijany, po 2 próbach dostaje „bez tytułu”, a 3 takie błędy pod rząd = przerwa (raczej sieć). W Pliki → Google Drive jest linijka „Tytuły linków: pobrane · bez tytułu · czekają” i ostatni problem.
 
 ## 9.11.2026 – tytuły dla linków z miksów YouTube (wersja 18)

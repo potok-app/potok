@@ -37,7 +37,8 @@ const Streszczenia = {
 
   /** Czy skrypt Google jest starszy niż wersja 4 (nie robi streszczeń). */
   skryptStary() {
-    return localStorage.getItem(Magazyn.klucz + '.skryptBezStreszczen') === '1';
+    const v = Synchronizacja.zapamietanaWersja();
+    return v > 0 && v < 9;
   },
 
   /** Po synchronizacji: sprawdza wersję skryptu (raz na uruchomienie) i pobiera nowe streszczenia. */
@@ -46,15 +47,9 @@ const Streszczenia = {
     this.trwa = true;
     const stary = this.skryptStary();
     try {
-      if (!this.wersjaSprawdzona) {
-        let wersja = 0;
-        try { wersja = (await Synchronizacja.doSkryptu({ akcja: 'wersja' })).wersja || 0; }
-        catch (e) { if (!/nieznana akcja/.test(e.message)) return; }   // brak sieci – spróbujemy później
-        this.wersjaSprawdzona = true;
-        // Wersja 5 = „Streść teraz”, 6 = modele zapasowe, 7 = limit czasu, 8 = długie filmy do ręcznego; starsza → ramka.
-        if (wersja < 9) localStorage.setItem(Magazyn.klucz + '.skryptBezStreszczen', '1');
-        else localStorage.removeItem(Magazyn.klucz + '.skryptBezStreszczen');
-      }
+      // Wersję skryptu sprawdza synchronizacja (raz na uruchomienie).
+      // Wersja 5 = „Streść teraz”, 6 = modele zapasowe, 7 = limit czasu, 8 = długie filmy do ręcznego; starsza → ramka.
+      try { await Synchronizacja.wersjaSkryptu(); } catch { return; }   // brak sieci – spróbujemy później
       if (this.skryptStary()) return;
       const { streszczenia, teraz } = await Synchronizacja.doSkryptu({ akcja: 'streszczenia', od: this.pamiec().od || undefined });
       this.zapamietaj(streszczenia, teraz);
