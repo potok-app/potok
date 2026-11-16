@@ -258,6 +258,15 @@ async function scenariusz(przegladarka, tryb) {
     komp.s.once('dialog', d => d.accept());
     await komp.s.click('#lista-urzadzen [data-nazwa="Komputer w pracy"]');
     await komp.s.waitForFunction(() => /odłączone/.test(document.querySelector('#lista-urzadzen').textContent));
+    // Odłączone schowane pod zwiniętym „Odłączone (1)” – nie zaśmiecają listy.
+    assert.strictEqual(await komp.s.evaluate(() => {
+      const d = document.querySelector('#lista-urzadzen details');
+      return d && !d.open && /Odłączone \(1\)/.test(d.querySelector('summary').textContent) && /Komputer w pracy/.test(d.textContent);
+    }), true, 'odłączone urządzenie nie jest schowane pod „Odłączone”');
+    // Odświeżenie po synchronizacji nie przerysowuje listy (nic nie znika pod kursorem).
+    await komp.s.evaluate(() => { window.__lista = document.querySelector('#lista-urzadzen li'); window.dispatchEvent(new Event('potok-odswiez')); });
+    await komp.s.waitForTimeout(500);
+    assert(await komp.s.evaluate(() => document.querySelector('#lista-urzadzen li') === window.__lista && !/Wczytuję/.test(document.querySelector('#lista-urzadzen').textContent)), 'lista urządzeń przerysowała się po odświeżeniu');
     // Komputer w pracy przy następnej synchronizacji czyści się sam.
     await praca.s.click('#stan-sync');
     await praca.s.waitForFunction(() => /zostało odłączone/.test(document.querySelector('#komunikat').textContent), null, { timeout: 10000 });
@@ -268,7 +277,7 @@ async function scenariusz(przegladarka, tryb) {
     assert(plikNaDrive().wpisy.length > 0, 'odłączenie ruszyło Dysk');
     // Klucz główny: zmiana z komputera domowego – stary przestaje działać, komputer działa dalej.
     komp.s.once('dialog', d => d.accept());
-    await komp.s.click('#urzadzenia summary');
+    await komp.s.click('#urzadzenia summary:text("Klucz główny")');
     await komp.s.click('#zmien-klucz-glowny');
     await komp.s.waitForFunction(() => /Klucz główny zmieniony/.test(document.querySelector('#komunikat').textContent));
     assert.deepStrictEqual(drive.google.zapytaj({ klucz: 'TAJNY-KLUCZ', akcja: 'wersja' }), { blad: 'zły klucz' });

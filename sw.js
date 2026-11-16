@@ -2,7 +2,7 @@
    Przy każdej zmianie plików podbij WERSJA – wtedy telefon pobierze nowe.
    Test (testy/test-spojnosci.js) pilnuje, żeby WERSJA = WERSJA_APLIKACJI
    z js/app.js, a PLIKI zawierały każdy skrypt i styl z index.html. */
-const WERSJA = 'potok-v31';
+const WERSJA = 'potok-v32';
 const PLIKI = ['./', 'index.html', 'styl.css', 'manifest.webmanifest', 'ikona.svg',
   'js/bledy.js', 'js/scal.js', 'js/magazyn.js', 'js/zip.js', 'js/import.js', 'js/eksport.js',
   'js/skrypt-google.js', 'js/synchronizacja.js', 'js/opisy.js', 'js/streszczenia.js', 'js/app.js'];

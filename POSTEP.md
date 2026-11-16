@@ -1,8 +1,9 @@
 # Potok – postęp prac i decyzje
 
-## 16.11.2026 (4) – po przenosinach (aplikacja v30–31)
+## 16.11.2026 (4) – po przenosinach (aplikacja v30–32)
 - Skrypt v11 wklejony; komputer i Pobieracz YT mają własne klucze. Telefon dostaje kod z listy Urządzenia.
 - Pole nazwy nowego urządzenia: było małe, w białym stylu przeglądarki i trudno było w nie trafić („nic się nie wpisuje”). Teraz szerokie, w kolorach aplikacji, z podpowiedzią „kliknij tutaj i wpisz”. Test e2e-drive wpisuje nazwę jak człowiek (klik + klawiatura).
+- v32: lista urządzeń nie znika przy synchronizacji (pobierana przy wejściu w Pliki i po zmianie; odświeżenie w tle najwyżej co minutę i tylko gdy coś się zmieniło). Odłączone urządzenia zwinięte pod „Odłączone (n)” – zostają w historii, nie zaśmiecają listy.
 - v31: „Utwórz kod połączenia” blokuje się na czas pracy skryptu („Tworzę kod…”) – wcześniej kilka kliknięć tworzyło kilka kodów „Telefon”.
 - Kod połączenia połamany na linie albo z „%23” zamiast „#” (po przesłaniu na telefon) jest naprawiany przy wklejeniu.
 

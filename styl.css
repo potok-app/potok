@@ -108,3 +108,4 @@ label.zaznacz input { width: 20px; height: 20px; margin: 0; }
 .lista-urzadzen li { padding: .5em 0; border-bottom: 1px solid #ddd; }
 .lista-urzadzen li.odlaczone { opacity: .6; }
 #nowy-kod { width: 100%; }
+.odlaczone-zwiniete summary { cursor: pointer; padding: .3em 0; }
