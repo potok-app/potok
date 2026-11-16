@@ -24,7 +24,7 @@ function esc(t) {
 }
 
 // Numer wersji aplikacji – podbijaj razem z WERSJA w sw.js.
-const WERSJA_APLIKACJI = 31;
+const WERSJA_APLIKACJI = 32;
 
 // Krótki komunikat na dole ekranu. Opcjonalnie z przyciskiem (np. „Cofnij”).
 function komunikat(tekst, przycisk = null, czas = 3500) {
@@ -284,13 +284,14 @@ function dodajRecznie(url, opis, zrodlo) {
 let aktualnyWidok = 'przeglad';
 
 function pokazWidok(nazwa) {
+  const wejscie = aktualnyWidok !== nazwa;   // przejście z innej zakładki (nie odświeżenie po synchronizacji)
   aktualnyWidok = nazwa;
   document.querySelectorAll('.widok').forEach(w => (w.hidden = w.id !== 'widok-' + nazwa));
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('aktywny', b.dataset.widok === nazwa));
   if (nazwa === 'przeglad') pokazPrzeglad();
   if (nazwa === 'listy') pokazListy();
   if (nazwa === 'zadania') pokazZadania();
-  if (nazwa === 'eksport') { pokazStanEksportu(); pokazStanSync(); pokazUrzadzenia(); }
+  if (nazwa === 'eksport') { pokazStanEksportu(); pokazStanSync(); pokazUrzadzenia(wejscie); }
   pokazAlarm();   // po odczycie danych – wtedy wiadomo, czy są uszkodzone
 }
 
@@ -319,22 +320,35 @@ function pokazStanSync() {
   $('#tytuly-wszystkie').checked = Opisy.wszystkieStrony();
 }
 
-// Lista urządzeń w Pliki (skrypt 11+). Pytamy skrypt przy każdym wejściu w Pliki.
-async function pokazUrzadzenia() {
+// Lista urządzeń w Pliki (skrypt 11+). Pytamy skrypt przy wejściu w Pliki i po
+// zmianie na liście. Odświeżenie po synchronizacji pyta najwyżej raz na minutę
+// i podmienia listę tylko wtedy, gdy coś się zmieniło – nie znika pod kursorem.
+let urzadzeniaPobrane = 0;
+async function pokazUrzadzenia(wymus = true) {
   if ($('#urzadzenia').hidden) return;
+  if (!wymus && Date.now() - urzadzeniaPobrane < 60000) return;
+  urzadzeniaPobrane = Date.now();
   const ul = $('#lista-urzadzen');
-  ul.textContent = 'Wczytuję listę urządzeń…';
+  if (!ul.children.length) ul.textContent = 'Wczytuję listę urządzeń…';
   const data = t => (t ? new Date(t).toLocaleString('pl-PL', { day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '–');
-  try {
-    const { urzadzenia, ja } = await Synchronizacja.urzadzenia();
-    ul.innerHTML = urzadzenia.map(u => `<li${u.odlaczono ? ' class="odlaczone"' : ''}>
+  const wiersz = (u, ja) => `<li${u.odlaczono ? ' class="odlaczone"' : ''}>
       <b>${esc(u.nazwa || 'bez nazwy')}</b>${u.sluzbowe ? ' 💼' : ''}${u.id === ja ? ' <i>(to urządzenie)</i>' : ''}
       <br><span class="pomoc">dodane ${esc(data(u.dodano))} · ostatnio ${esc(data(u.ostatnio))}</span>
       ${u.odlaczono ? `<br><span class="pomoc">odłączone ${esc(data(u.odlaczono))}</span>`
         : u.id === ja ? '' : `<br><button data-odlacz="${esc(u.id)}" data-nazwa="${esc(u.nazwa || 'bez nazwy')}">Odłącz i wyczyść</button>`}
-    </li>`).join('') || '<li>Brak urządzeń.</li>';
+    </li>`;
+  try {
+    const { urzadzenia, ja } = await Synchronizacja.urzadzenia();
+    const aktywne = urzadzenia.filter(u => !u.odlaczono), odlaczone = urzadzenia.filter(u => u.odlaczono);
+    // Odłączone zostają w historii, ale zwinięte – nie zaśmiecają listy.
+    const otwarte = !!ul.querySelector('details[open]');
+    const html = (aktywne.map(u => wiersz(u, ja)).join('') || '<li>Brak urządzeń.</li>') +
+      (odlaczone.length ? `<li class="odlaczone-zwiniete"><details${otwarte ? ' open' : ''}><summary>Odłączone (${odlaczone.length})</summary>
+        <ul class="lista-urzadzen">${odlaczone.map(u => wiersz(u, ja)).join('')}</ul></details></li>` : '');
+    if (ul.dataset.html !== html) { ul.innerHTML = html; ul.dataset.html = html; }
   } catch (e) {
     ul.textContent = 'Nie udało się wczytać listy urządzeń: ' + e.message;
+    delete ul.dataset.html;
   }
 }
 
