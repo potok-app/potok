@@ -442,6 +442,17 @@ test('streszczenia: eksport .md zawiera krótkie i szczegółowe streszczenie', 
   localStorage.removeItem(Streszczenia.kluczPamieci());
 });
 
+test('kod połączenia: połamany na linie albo z %23 zamiast # nadal działa', () => {
+  const zapis = localStorage.getItem(Magazyn.klucz + '.skrypt');
+  const u = 'https://script.google.com/macros/s/AKfy-cz_1/exec', k = 'tajnyKlucz_123';
+  for (const kod of [u + '#' + k, ' ' + u + '#\n' + k + ' \n', u.slice(0, 30) + '\r\n' + u.slice(30) + '%23' + k]) {
+    prawda(Synchronizacja.ustawSkrypt(kod), JSON.stringify(kod));
+    rowne(JSON.parse(localStorage.getItem(Magazyn.klucz + '.skrypt')).klucz, k);
+  }
+  prawda(!Synchronizacja.ustawSkrypt(u), 'sam adres bez klucza');
+  if (zapis) localStorage.setItem(Magazyn.klucz + '.skrypt', zapis); else localStorage.removeItem(Magazyn.klucz + '.skrypt');
+});
+
 test('streszczenia: ostatnia nieudana próba widoczna przy wpisie razem z godziną', () => {
   localStorage.removeItem(Streszczenia.kluczPamieci());
   localStorage.setItem(Magazyn.klucz + '.skrypt', JSON.stringify({ url: 'https://script.google.com/macros/s/x/exec', klucz: 'k' }));

@@ -1,10 +1,16 @@
 # Potok – postęp prac i decyzje
 
+## 16.11.2026 (3) – przenosiny na osobny adres (B-05)
+- Repozytorium przeniesione do osobnej organizacji: **github.com/potok-app/potok**. Adres aplikacji: **https://potok-app.github.io/potok/** (strona działa, publikacja przez GitHub Actions jak dotąd).
+- Stary adres https://cyberia-studio-projects.github.io/potok/ to teraz osobne, małe repozytorium ze stroną, która czyści z przeglądarki stare dane Potoku i przekierowuje pod nowy adres (sprawdzone: przekierowuje).
+- Dane w przeglądarce są osobne dla każdego adresu, więc na każdym urządzeniu: otworzyć nowy adres → Pliki → Google Drive → wkleić kod połączenia (adres /exec + „#” + klucz). Na telefonie: odinstalować starą aplikację Potok i zainstalować z nowego adresu (inaczej „Udostępnij → Potok” trafia pod stary adres).
+- Wpisy z 9.11 niżej podają stary adres – zostawione jako historia.
+
 ## 16.11.2026 (2) – osobny kod dla każdego urządzenia, zdalne „Odłącz i wyczyść” (aplikacja v29, skrypt Google v11)
 Prośba (B-10 z audytu): móc zdalnie odłączyć komputer służbowy i wyczyścić z jego przeglądarki wszystko o Potoku.
 - **Skrypt v11:** każde urządzenie ma własny klucz. We Właściwościach skryptu tylko skrót (SHA-256): `U_<skrót>` = nazwa, służbowe, dodano, ostatnio; `X_<skrót>` = data odłączenia (osobno, żeby zapis „ostatnio” go nie nadpisał). Klucz główny przenoszony do właściwości `KLUCZ_GLOWNY` i służy już tylko do przyłączania. Akcje: `zarejestruj`, `urzadzenia`, `noweUrzadzenie`, `odlacz`, `zmienKluczGlowny`; funkcja `nowyKluczGlowny` w edytorze (awaryjnie). Odłączone urządzenie na każde zapytanie dostaje `{ odlaczone: true }`. Komputer, który choć raz zgłosił się jako służbowy, nie zarządza urządzeniami.
 - **Aplikacja:** przy skrypcie 11 urządzenie z kluczem głównym samo dostaje własny klucz i zapomina główny. Pliki → **Urządzenia**: lista (nazwa, 💼, ostatnio widziane), „Utwórz kod połączenia” dla nowego urządzenia (też Pobieracza), „Odłącz i wyczyść”, „Zmień klucz główny”. Po `odlaczone` aplikacja usuwa pamięć podręczną, service workera, wszystkie klucze `potok*` z localStorage i sessionStorage, przeładowuje się i mówi, co się stało.
-- **B-09** zostaje jak jest (🏠 = tylko prywatnie; na służbowym wpis widoczny, link zablokowany). **B-05** czeka na decyzję (osobna darmowa organizacja GitHub, jeśli w cyberia-studio-projects będą inne strony).
+- **B-09** zostaje jak jest (🏠 = tylko prywatnie; na służbowym wpis widoczny, link zablokowany). **B-05** załatwione 16.11 – patrz wpis „przenosiny” wyżej.
 - **Testy:** test-skryptu (klucze, skróty zamiast kluczy, prawa służbowego, odłączenie dla każdej akcji, zmiana klucza głównego), e2e-drive krok 11 (komputer w pracy przyłączony kodem z listy, odłączony z domu, w jego przeglądarce nic nie zostaje).
 
 ## 16.11.2026 – poprawki po audycie bezpieczeństwa i architektury (wersja aplikacji 28, skrypt Google v10)
