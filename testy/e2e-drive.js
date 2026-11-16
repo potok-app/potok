@@ -129,8 +129,12 @@ async function scenariusz(przegladarka, tryb) {
       // Wpisywanie jak człowiek (klik + klawiatura), nie fill – pole musi przyjmować tekst.
       await komp.s.click('#nazwa-nowego'); await komp.s.keyboard.type('Telefon');
       if (await komp.s.inputValue('#nazwa-nowego') !== 'Telefon') throw new Error('pole nazwy urządzenia nie przyjmuje tekstu');
-      await komp.s.click('#utworz-kod');
+      // Trzy szybkie kliknięcia (skrypt odpowiada kilka sekund) = jeden kod, nie trzy.
+      await komp.s.evaluate(() => { const b = document.querySelector('#utworz-kod'); b.click(); b.click(); b.click(); });
       await komp.s.waitForSelector('#nowy-kod-pole', { state: 'visible' });
+      await komp.s.waitForFunction(() => !document.querySelector('#utworz-kod').disabled);
+      const telefony = (await komp.s.evaluate(() => Synchronizacja.urzadzenia())).urzadzenia.filter(u => u.nazwa === 'Telefon');
+      assert.strictEqual(telefony.length, 1, 'wielokrotne kliknięcie utworzyło kilka kodów');
       kodPolaczenia = await komp.s.inputValue('#nowy-kod');
       assert(kodPolaczenia.startsWith(ADRES_SKRYPTU + '#') && kodPolaczenia !== ADRES_SKRYPTU + '#' + s.klucz, 'zły kod dla nowego urządzenia');
     } else {

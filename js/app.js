@@ -24,7 +24,7 @@ function esc(t) {
 }
 
 // Numer wersji aplikacji – podbijaj razem z WERSJA w sw.js.
-const WERSJA_APLIKACJI = 30;
+const WERSJA_APLIKACJI = 31;
 
 // Krótki komunikat na dole ekranu. Opcjonalnie z przyciskiem (np. „Cofnij”).
 function komunikat(tekst, przycisk = null, czas = 3500) {
@@ -554,6 +554,11 @@ document.addEventListener('DOMContentLoaded', () => {
     pokazUrzadzenia();
   };
   $('#utworz-kod').onclick = async () => {
+    // Skrypt odpowiada kilka sekund – blokujemy przycisk, żeby kolejne
+    // kliknięcia nie tworzyły zapasowych kodów (urządzeń) o tej samej nazwie.
+    const b = $('#utworz-kod');
+    if (b.disabled) return;
+    b.disabled = true; b.textContent = 'Tworzę kod…';
     try {
       $('#nowy-kod').value = await Synchronizacja.noweUrzadzenie($('#nazwa-nowego').value.trim() || 'Nowe urządzenie', $('#nowe-sluzbowe').checked);
       $('#nowy-kod-pole').hidden = false;
@@ -561,6 +566,7 @@ document.addEventListener('DOMContentLoaded', () => {
       $('#nowe-sluzbowe').checked = false;
       pokazUrzadzenia();
     } catch (err) { komunikat('Nie udało się utworzyć kodu: ' + err.message); }
+    finally { b.disabled = false; b.textContent = 'Utwórz kod połączenia'; }
   };
   $('#kopiuj-nowy-kod').onclick = () => kopiuj($('#nowy-kod').value, 'Skopiowano kod połączenia – wklej go na nowym urządzeniu w „Pliki → Google Drive”.');
   $('#zmien-klucz-glowny').onclick = async () => {
